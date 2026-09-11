@@ -1,0 +1,17 @@
+.DS_Store
+.env
+*.db
+*.sqlite3
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.venv/
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+contracts/artifacts/
+contracts/cache/
+contracts/typechain-types/
+contracts/types/
