@@ -8,6 +8,7 @@ def test_health_and_demo_payment_flow():
         health = client.get("/api/health")
         assert health.status_code == 200
         assert health.json()["mode"] == "simulation"
+        assert health.json()["payment_token_address"] is None
 
         response = client.post(
             "/api/demo/payments",

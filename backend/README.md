@@ -1,4 +1,4 @@
-# VisaTrust API
+# Paradime API
 
 FastAPI service for agent registry checks, deterministic and LLM-assisted fraud
 scoring, Sepolia event ingestion, autonomous escrow resolution, and WebSocket

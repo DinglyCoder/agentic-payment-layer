@@ -73,6 +73,7 @@ class HealthRead(BaseModel):
     mode: str
     chain_id: int
     contract_address: str | None
+    payment_token_address: str | None
     llm_enabled: bool
     stablecoin_symbol: str
     stablecoin_decimals: int

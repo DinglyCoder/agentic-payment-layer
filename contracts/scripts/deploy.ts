@@ -9,12 +9,12 @@ if (!paymentToken) {
   throw new Error("PAYMENT_TOKEN_ADDRESS must identify a Sepolia ERC-20 stablecoin");
 }
 
-console.log(`Deploying VisaTrustEscrow to ${networkName}`);
+console.log(`Deploying ParadimeEscrow to ${networkName}`);
 console.log(`Deployer: ${deployer.address}`);
 console.log(`Arbitrator: ${arbitrator}`);
 console.log(`Payment token: ${paymentToken}`);
 
-const escrow = await ethers.deployContract("VisaTrustEscrow", [paymentToken, arbitrator]);
+const escrow = await ethers.deployContract("ParadimeEscrow", [paymentToken, arbitrator]);
 await escrow.waitForDeployment();
 
-console.log(`VisaTrustEscrow: ${await escrow.getAddress()}`);
+console.log(`ParadimeEscrow: ${await escrow.getAddress()}`);

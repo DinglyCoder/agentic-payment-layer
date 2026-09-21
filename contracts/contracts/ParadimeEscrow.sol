@@ -4,10 +4,10 @@ pragma solidity ^0.8.34;
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
-/// @title VisaTrustEscrow
+/// @title ParadimeEscrow
 /// @notice Reversible ERC-20 stablecoin escrow for autonomous agent payments.
-/// @dev The configured arbitrator is expected to be an automated VisaTrust signer.
-contract VisaTrustEscrow {
+/// @dev The configured arbitrator is expected to be an automated trust-layer signer.
+contract ParadimeEscrow {
     using SafeERC20 for IERC20;
 
     uint64 public constant RECALL_WINDOW = 30 seconds;

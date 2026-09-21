@@ -1,1 +1,1 @@
-"""VisaTrust API package."""
+"""Paradime API package."""

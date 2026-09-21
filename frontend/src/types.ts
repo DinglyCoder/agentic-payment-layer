@@ -41,6 +41,7 @@ export interface Health {
   mode: "simulation" | "sepolia";
   chain_id: number;
   contract_address: string | null;
+  payment_token_address: string | null;
   llm_enabled: boolean;
   stablecoin_symbol: string;
   stablecoin_decimals: number;

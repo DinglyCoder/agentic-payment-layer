@@ -1,5 +1,5 @@
 [project]
-name = "visatrust-api"
+name = "paradime-api"
 version = "0.1.0"
 description = "Trust and arbitration service for autonomous agent payments"
 readme = "README.md"

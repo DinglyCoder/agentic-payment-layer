@@ -1,16 +1,16 @@
 import { expect } from "chai";
 import { network } from "hardhat";
-import type { MockStablecoin, VisaTrustEscrow } from "../types/ethers-contracts/index.js";
+import type { MockStablecoin, ParadimeEscrow } from "../types/ethers-contracts/index.js";
 
-describe("VisaTrustEscrow", function () {
+describe("ParadimeEscrow", function () {
   async function fixture() {
     const { ethers, networkHelpers } = await network.create();
     const [arbitrator, sender, receiver, stranger] = await ethers.getSigners();
     const token = (await ethers.deployContract("MockStablecoin")) as unknown as MockStablecoin;
-    const escrow = (await ethers.deployContract("VisaTrustEscrow", [
+    const escrow = (await ethers.deployContract("ParadimeEscrow", [
       await token.getAddress(),
       arbitrator.address,
-    ])) as unknown as VisaTrustEscrow;
+    ])) as unknown as ParadimeEscrow;
     const paymentId = ethers.id("payment-001");
     const metadataHash = ethers.id("agent compute job");
     const amount = ethers.parseUnits("10", 6);

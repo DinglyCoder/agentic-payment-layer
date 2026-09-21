@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-TEST_DATABASE = Path(__file__).parent / "visatrust-test.db"
+TEST_DATABASE = Path(__file__).parent / "paradime-test.db"
 os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///{TEST_DATABASE}"
 os.environ["SIMULATION_MODE"] = "true"
 os.environ["SEED_DEMO_DATA"] = "false"

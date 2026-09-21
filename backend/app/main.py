@@ -40,7 +40,7 @@ async def lifespan(app: FastAPI):
         )
         logger.info("Sepolia escrow listener started")
     else:
-        logger.info("VisaTrust started in simulation mode")
+        logger.info("Paradime started in simulation mode")
 
     yield
 
@@ -53,7 +53,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="VisaTrust API",
+    title="Paradime API",
     description="Identity, fraud detection, and arbitration for autonomous agent payments.",
     version=settings.app_version,
     lifespan=lifespan,

@@ -18,7 +18,9 @@ def fake_hash(value: str) -> str:
     return "0x" + hashlib.sha256(value.encode()).hexdigest()
 
 
-async def seed_database(session: AsyncSession, include_payments: bool) -> None:
+async def seed_database(session: AsyncSession, include_demo_data: bool) -> None:
+    if not include_demo_data:
+        return
     agents = [
         AgentIdentity(address=address, name=name, status=status, trust_score=score)
         for address, name, status, score in DEMO_AGENT_DATA
@@ -26,7 +28,7 @@ async def seed_database(session: AsyncSession, include_payments: bool) -> None:
     if not await session.scalar(select(func.count()).select_from(AgentIdentity)):
         session.add_all(agents)
 
-    if include_payments and not await session.scalar(select(func.count()).select_from(Payment)):
+    if not await session.scalar(select(func.count()).select_from(Payment)):
         now = utc_now()
         session.add_all(
             [

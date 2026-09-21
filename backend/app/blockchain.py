@@ -53,11 +53,45 @@ class EscrowChain:
     async def validate(self) -> None:
         if not self.enabled:
             return
-        assert self.w3 is not None and self.contract is not None
+        assert self.w3 is not None and self.contract is not None and self.account is not None
         if await self.w3.eth.chain_id != 11155111:
             raise RuntimeError("SEPOLIA_RPC_URL is not connected to Ethereum Sepolia")
         if not await self.w3.eth.get_code(self.contract.address):
             raise RuntimeError("ESCROW_CONTRACT_ADDRESS has no deployed bytecode")
+        configured_token = Web3.to_checksum_address(self.settings.payment_token_address)
+        contract_token = Web3.to_checksum_address(
+            await self.contract.functions.paymentToken().call()
+        )
+        if contract_token != configured_token:
+            raise RuntimeError("PAYMENT_TOKEN_ADDRESS does not match the escrow's immutable token")
+        token = self.w3.eth.contract(
+            address=contract_token,
+            abi=[
+                {
+                    "inputs": [],
+                    "name": "decimals",
+                    "outputs": [{"internalType": "uint8", "name": "", "type": "uint8"}],
+                    "stateMutability": "view",
+                    "type": "function",
+                }
+            ],
+        )
+        if await token.functions.decimals().call() != self.settings.stablecoin_decimals:
+            raise RuntimeError("STABLECOIN_DECIMALS does not match the configured token")
+        contract_arbitrator = Web3.to_checksum_address(
+            await self.contract.functions.arbitrator().call()
+        )
+        configured_arbitrator = Web3.to_checksum_address(self.account.address)
+        if contract_arbitrator != configured_arbitrator:
+            raise RuntimeError("ARBITRATOR_PRIVATE_KEY does not control the escrow arbitrator")
+
+    async def current_time(self) -> datetime:
+        """Return chain time so deadline decisions match contract execution."""
+        if not self.enabled:
+            return datetime.now(UTC)
+        assert self.w3 is not None
+        block = await self.w3.eth.get_block("latest")
+        return datetime.fromtimestamp(block["timestamp"], UTC)
 
     async def listen(
         self,

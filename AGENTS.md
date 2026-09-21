@@ -1,4 +1,4 @@
-# VisaTrust agent guide
+# Paradime agent guide
 
 This file is project-specific context for coding agents. The root `README.md`
 is the operator-facing setup guide; `docs/architecture.md` explains the trust
@@ -6,10 +6,10 @@ model; `handoff.md` records completed work and the current handoff state.
 
 ## Product boundary
 
-VisaTrust is a hackathon prototype for reversible AI-agent-to-AI-agent ERC-20
-stablecoin payments on Ethereum Sepolia. VisaTrust acts as the identity,
+Paradime is a hackathon prototype for reversible AI-agent-to-AI-agent ERC-20
+stablecoin payments on Ethereum Sepolia. It acts as the identity,
 fraud-detection, and arbitration layer. It is not audited or production payment
-infrastructure, and it must not be described as an official Visa product.
+infrastructure.
 
 Keep two modes working:
 
@@ -26,7 +26,7 @@ except at API/UI boundaries.
 
 ### Smart contract (`contracts/`)
 
-`VisaTrustEscrow.sol` is the source of truth for settlement invariants:
+`ParadimeEscrow.sol` is the source of truth for settlement invariants:
 
 - `deposit` pulls the immutable ERC-20 with `SafeERC20`, rejects empty,
   self-directed, and duplicate payments, and starts the 30-second window.
@@ -39,7 +39,7 @@ except at API/UI boundaries.
 
 If the contract event or callable resolution functions change, update
 `backend/app/contract_abi.json` in the same commit. Keep boundary and
-authorization tests in `contracts/test/VisaTrustEscrow.ts`.
+authorization tests in `contracts/test/ParadimeEscrow.ts`.
 
 ### Backend (`backend/`)
 
@@ -56,7 +56,9 @@ authorization tests in `contracts/test/VisaTrustEscrow.ts`.
   is a floor: an LLM response may increase it but must never reduce it. LLM
   failure must leave deterministic controls operational.
 - `app/blockchain.py`: `EscrowChain.listen` polls confirmed Sepolia logs and
-  `resolve` serializes signer nonces while sending execute/recall calls.
+  `resolve` serializes signer nonces while sending execute/recall calls. Use
+  the latest Sepolia block timestamp—not the host clock—when deciding whether
+  a payment is ready for post-window execution.
 - `app/models.py`: SQLAlchemy persistence and state enums. `payment_id` is both
   the on-chain identifier and the ingestion idempotency key.
 - `app/websocket.py`: in-process dashboard fanout after persisted transitions.
@@ -69,9 +71,11 @@ database state before broadcasting it.
 ### Frontend (`frontend/`)
 
 `src/api.ts` owns HTTP/WebSocket transport and reconnect behavior.
-`src/App.tsx` owns dashboard state, payment replacement by `payment_id`, agent
-labels, risk details, and the simulation form. `src/types.ts` mirrors backend
-response schemas. When an API field changes, update all three together.
+`src/App.tsx` owns the landing, payment, dashboard, and agent-repository routes,
+dashboard state, payment replacement by `payment_id`, agent labels, and risk
+details. `src/wallet.ts` owns browser-wallet connection, Sepolia validation,
+USDC approval, and escrow deposits. `src/types.ts` mirrors backend response
+schemas. When an API field changes, update all affected boundaries together.
 
 The dashboard must remain usable with an empty payment list, during API/WebSocket
 failure, and on mobile widths. Do not add wallet requirements to simulation
@@ -106,6 +110,11 @@ and velocity paths as applicable. API changes need request/response coverage.
 - Store real durable secrets only in SOPS-encrypted files under `secrets/` and
   invoke consumers with `with-secrets FILE... -- COMMAND`.
 - `ARBITRATOR_PRIVATE_KEY` must match the contract's current arbitrator.
+- The current Sepolia deployment is
+  `0xb1248BabB341605552f228f12BcB2EE68510Ddd5`; its immutable payment token is
+  Circle test USDC at `0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238`.
+- The encrypted workstation configuration is `secrets/sepolia.env`. Do not
+  replace it with a plaintext environment file.
 - Sepolia mode must validate chain ID `11155111` and deployed bytecode before
   starting the listener.
 - The configured token's decimals must match `STABLECOIN_DECIMALS`; the default

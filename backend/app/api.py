@@ -27,6 +27,7 @@ async def health() -> HealthRead:
         mode="simulation" if settings.simulation_mode else "sepolia",
         chain_id=11155111,
         contract_address=settings.escrow_contract_address,
+        payment_token_address=settings.payment_token_address,
         llm_enabled=settings.anthropic_api_key is not None,
         stablecoin_symbol=settings.stablecoin_symbol,
         stablecoin_decimals=settings.stablecoin_decimals,

@@ -2,7 +2,7 @@ import asyncio
 import hashlib
 import secrets
 import time
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 from decimal import Decimal
 
 from sqlalchemy import select
@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from .blockchain import DepositEvent, EscrowChain
 from .fraud import FraudEngine, RiskAssessment
-from .models import Payment, PaymentStatus, utc_now
+from .models import AgentIdentity, Payment, PaymentStatus, RegistryStatus, utc_now
 from .schemas import DemoPaymentCreate, PaymentRead
 from .websocket import ConnectionManager
 
@@ -36,6 +36,16 @@ class PaymentProcessor:
         async with self.sessions() as session:
             if await session.get(Payment, event.payment_id):
                 return
+            for address in (event.sender, event.receiver):
+                if await session.get(AgentIdentity, address) is None:
+                    session.add(
+                        AgentIdentity(
+                            address=address,
+                            name=f"Sepolia wallet {address[:8]}…{address[-4:]}",
+                            status=RegistryStatus.UNKNOWN,
+                            trust_score=50,
+                        )
+                    )
             payment = Payment(
                 payment_id=event.payment_id,
                 sender=event.sender,
@@ -118,7 +128,7 @@ class PaymentProcessor:
     async def settle_due(self) -> None:
         if not self.chain.enabled:
             return
-        now = datetime.now(UTC)
+        now = await self.chain.current_time()
         async with self.sessions() as session:
             query = select(Payment).where(
                 Payment.status == PaymentStatus.APPROVED,

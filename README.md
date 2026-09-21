@@ -1,9 +1,8 @@
-# VisaTrust — Agentic Stablecoin Payments
+# Paradime — Autonomous Stablecoin Payments
 
-VisaTrust is a hackathon-scale trust and arbitration layer for autonomous
-agent-to-agent payments. It demonstrates how Visa could provide identity,
-fraud screening, and reversible settlement for payments that use blockchain
-rails instead of cards.
+Paradime is a hackathon-scale trust and arbitration system for autonomous
+agent-to-agent payments. It provides identity, fraud screening, and reversible
+settlement for payments that use blockchain rails.
 
 > This is a prototype, not audited payment infrastructure. The contract moves
 > a configurable Sepolia ERC-20 stablecoin. Production use would still require
@@ -24,17 +23,17 @@ rails instead of cards.
 ```mermaid
 sequenceDiagram
     participant A as Buyer agent
-    participant E as VisaTrust escrow
-    participant V as Visa fraud engine
+    participant E as Trust-layer escrow
+    participant T as Trust and risk engine
     participant B as Seller agent
     A->>E: deposit(paymentId, seller, metadataHash)
-    E-->>V: PaymentDeposited event
-    V->>V: registry + velocity + amount + Claude
+    E-->>T: PaymentDeposited event
+    T->>T: registry + velocity + amount + Claude
     alt suspicious during 30 seconds
-        V->>E: recallPayment(paymentId)
+        T->>E: recallPayment(paymentId)
         E-->>A: refund
     else approved after 30 seconds
-        V->>E: executePayment(paymentId)
+        T->>E: executePayment(paymentId)
         E-->>B: settlement
     end
 ```
@@ -62,26 +61,46 @@ without a wallet or API key.
 
 ## Sepolia mode
 
-1. Deploy the contract:
+Sepolia mode uses Circle-issued test USDC at
+`0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238`. Testnet tokens have no financial
+value. The payment page connects an EIP-1193 browser wallet, requests a USDC
+allowance, and deposits into the deployed escrow. The dashboard links the
+deposit, resolution, wallets, block, token, and escrow to Sepolia Etherscan.
+
+Before starting, fund the browser wallet with Sepolia ETH for gas and test USDC
+from the [Circle testnet faucet](https://faucet.circle.com/).
+
+1. The repository includes `secrets/sepolia.env`, encrypted with SOPS to this
+   workstation's age key. Fund the public addresses listed in
+   `secrets/README.md`, then deploy without writing plaintext keys:
 
    ```bash
-   cp contracts/.env.example contracts/.env
    cd contracts
-   npm run deploy:sepolia
+   with-secrets ../secrets/sepolia.env -- npm run deploy:sepolia
    ```
 
 2. Configure the backend with the deployed address and the same arbitrator
    wallet:
 
    ```bash
-   cp backend/.env.example backend/.env
-   # Set SIMULATION_MODE=false, SEPOLIA_RPC_URL,
-   # ESCROW_CONTRACT_ADDRESS, and ARBITRATOR_PRIVATE_KEY.
    cd backend
-   uv run uvicorn app.main:app --reload
+   with-secrets ../secrets/sepolia.env -- uv run uvicorn app.main:app --reload
    ```
 
-3. Optionally set `ANTHROPIC_API_KEY`. If Claude is unavailable, the fraud
+3. Start the frontend, open the payment page, and connect the funded browser
+   wallet:
+
+   ```bash
+   cd frontend
+   npm run dev
+   ```
+
+   The wallet must be on Ethereum Sepolia. A payment may require two signatures:
+   one USDC approval and one escrow deposit. The backend waits for the configured
+   confirmation depth before showing the payment and later submits the
+   execute/recall transaction.
+
+4. Optionally set `ANTHROPIC_API_KEY`. If Claude is unavailable, the fraud
    engine fails closed to its deterministic rules rather than skipping review.
 
 Private keys and API keys must never be committed. For durable local secrets,
@@ -108,5 +127,4 @@ make dev-frontend # Vite on :5173
 
 ## License
 
-MIT. VisaTrust is an independent hackathon prototype and is not an official
-Visa product.
+MIT. Paradime is an independent hackathon prototype.

@@ -7,10 +7,10 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
-    app_name: str = "VisaTrust"
+    app_name: str = "Paradime"
     app_version: str = "0.1.0"
     simulation_mode: bool = True
-    database_url: str = "sqlite+aiosqlite:///./visatrust.db"
+    database_url: str = "sqlite+aiosqlite:///./paradime.db"
     frontend_origin: str = "http://localhost:5173"
     seed_demo_data: bool = True
 
@@ -19,6 +19,7 @@ class Settings(BaseSettings):
 
     sepolia_rpc_url: str | None = None
     escrow_contract_address: str | None = None
+    payment_token_address: str | None = None
     arbitrator_private_key: SecretStr | None = None
     chain_confirmations: int = 2
     chain_start_block: int | None = None
@@ -45,6 +46,7 @@ class Settings(BaseSettings):
                 for name, value in (
                     ("SEPOLIA_RPC_URL", self.sepolia_rpc_url),
                     ("ESCROW_CONTRACT_ADDRESS", self.escrow_contract_address),
+                    ("PAYMENT_TOKEN_ADDRESS", self.payment_token_address),
                     ("ARBITRATOR_PRIVATE_KEY", self.arbitrator_private_key),
                 )
                 if not value
