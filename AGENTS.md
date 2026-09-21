@@ -113,6 +113,9 @@ and velocity paths as applicable. API changes need request/response coverage.
 - The current Sepolia deployment is
   `0xb1248BabB341605552f228f12BcB2EE68510Ddd5`; its immutable payment token is
   Circle test USDC at `0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238`.
+- That deployment predates the source-level `ParadimeEscrow` rename. Its ABI
+  and behavior remain compatible, but do not describe it as source-verified
+  under the Paradime name unless a renamed deployment is created and verified.
 - The encrypted workstation configuration is `secrets/sepolia.env`. Do not
   replace it with a plaintext environment file.
 - Sepolia mode must validate chain ID `11155111` and deployed bytecode before
