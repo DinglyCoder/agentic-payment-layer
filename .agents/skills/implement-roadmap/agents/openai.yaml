@@ -1,0 +1,4 @@
+interface:
+  display_name: "Implement Roadmap"
+  short_description: "Implement the next roadmap milestone end to end"
+  default_prompt: "Use $implement-roadmap to implement the next appropriate milestone from docs/roadmap.md, update the project handoff and guidance, verify it, commit it, and push it."
