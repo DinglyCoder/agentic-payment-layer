@@ -7,6 +7,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
 from .api import router
+from .autonomy import BuyerAgent, SellerComputeAgent, mcp_router
 from .blockchain import EscrowChain
 from .config import get_settings
 from .database import SessionLocal, close_database, init_database
@@ -29,7 +30,12 @@ async def lifespan(app: FastAPI):
     chain = EscrowChain(settings)
     fraud = FraudEngine(settings)
     processor = PaymentProcessor(SessionLocal, fraud, chain, manager)
+    seller = SellerComputeAgent(settings)
+    buyer = BuyerAgent(settings, SessionLocal, processor, chain, seller)
     app.state.processor = processor
+    app.state.seller = seller
+    app.state.buyer = buyer
+    app.state.sessions = SessionLocal
     chain_task: asyncio.Task | None = None
 
     if chain.enabled:
@@ -73,6 +79,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.include_router(router)
+app.include_router(mcp_router)
 
 
 @app.websocket("/ws/payments")

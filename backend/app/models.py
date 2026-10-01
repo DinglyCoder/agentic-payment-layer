@@ -110,3 +110,40 @@ class ChainCursor(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, onupdate=utc_now
     )
+
+
+class SpendingMandate(Base):
+    __tablename__ = "spending_mandates"
+
+    mandate_id: Mapped[str] = mapped_column(String(66), primary_key=True)
+    owner: Mapped[str] = mapped_column(String(42), index=True)
+    delegate: Mapped[str] = mapped_column(String(42), index=True)
+    token: Mapped[str] = mapped_column(String(42))
+    max_amount_per_payment_units: Mapped[str] = mapped_column(String(78))
+    total_budget_units: Mapped[str] = mapped_column(String(78))
+    spent_units: Mapped[str] = mapped_column(String(78), default="0")
+    allowed_receiver: Mapped[str] = mapped_column(String(42))
+    allowed_service: Mapped[str] = mapped_column(String(120))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    nonce: Mapped[str] = mapped_column(String(66), unique=True)
+    signature: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class AutonomousPurchase(Base):
+    __tablename__ = "autonomous_purchases"
+
+    purchase_id: Mapped[str] = mapped_column(String(66), primary_key=True)
+    mandate_id: Mapped[str] = mapped_column(String(66), index=True)
+    payment_id: Mapped[str | None] = mapped_column(String(66), unique=True, nullable=True)
+    seller: Mapped[str] = mapped_column(String(42))
+    service: Mapped[str] = mapped_column(String(120))
+    prompt: Mapped[str] = mapped_column(String(1000))
+    amount_units: Mapped[str] = mapped_column(String(78))
+    status: Mapped[str] = mapped_column(String(24), index=True)
+    x402_requirement: Mapped[dict] = mapped_column(JSON)
+    x402_payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    result: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    failure_reason: Mapped[str | None] = mapped_column(String(240), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

@@ -48,6 +48,10 @@ authorization tests in `contracts/test/ParadimeEscrow.ts`.
 - `app/api.py`: health, payment, agent, statistics, and simulation endpoints.
   `/api/intents` accepts Sepolia intent envelopes only after their sender
   signature, canonical hash, configured token, nonce, and expiry validate.
+- `app/autonomy.py`: the buyer session wallet, signed spending-mandate policy,
+  x402 v2 MCP adapter, and deterministic seller compute tool. The buyer reserves
+  mandate budget before paying; the seller releases output only for an executed
+  payment whose parties, amount, terms, mandate, and delegate signature match.
 - `app/service.py`: `PaymentProcessor` owns the transaction lifecycle.
   `register_intent` persists verified envelopes, `process_deposit` binds them
   to confirmed deposits, and `create_demo` is the credential-free equivalent.
@@ -66,8 +70,9 @@ authorization tests in `contracts/test/ParadimeEscrow.ts`.
   whether a payment is ready for post-window execution.
 - `app/models.py`: SQLAlchemy persistence and state enums. `payment_id` is both
   the on-chain identifier and the ingestion idempotency key. `IntentEnvelope`
-  stores signed purchase intent, while `ChainCursor` stores durable listener
-  progress. Resolution retry state belongs on `Payment`.
+  stores signed purchase intent, `SpendingMandate` and `AutonomousPurchase`
+  store autonomous authority and audit state, while `ChainCursor` stores durable
+  listener progress. Resolution retry state belongs on `Payment`.
 - `app/websocket.py`: in-process dashboard fanout after persisted transitions.
 
 Store wallet addresses in lowercase in the database. Keep transaction and
@@ -84,6 +89,13 @@ a protocol change and requires cross-boundary tests.
 Risk explanations are persisted policy output, not presentation estimates.
 Keep each signal's name, contribution, weight, and bounded evidence in
 `risk_signals`, and bump `policy_version` when scoring semantics change.
+
+Preserve the canonical spending-mandate field order in
+`autonomy.mandate_payload`. A mandate is owner-signed, authorizes only the
+configured buyer delegate, token, receiver, service, per-payment limit, total
+budget, nonce, and expiry, and must reserve budget before a payment begins.
+The dedicated buyer key is application-constrained, not an on-chain session-key
+primitive; never describe it as preventing direct key misuse outside Paradime.
 
 ### Frontend (`frontend/`)
 
@@ -131,6 +143,9 @@ coverage.
 - Store real durable secrets only in SOPS-encrypted files under `secrets/` and
   invoke consumers with `with-secrets FILE... -- COMMAND`.
 - `ARBITRATOR_PRIVATE_KEY` must match the contract's current arbitrator.
+- `AUTONOMOUS_BUYER_PRIVATE_KEY` is optional. When present in Sepolia mode,
+  `SELLER_ADDRESS` is required; the dedicated buyer wallet needs test ETH and
+  test USDC. Keep this key encrypted and separate from the arbitrator.
 - The current Sepolia deployment is
   `0xb1248BabB341605552f228f12BcB2EE68510Ddd5`; its immutable payment token is
   Circle test USDC at `0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238`.
@@ -155,6 +170,7 @@ coverage.
 The service uses SQLite, an in-process WebSocket manager, one polling process,
 one arbitration signer, and a single immutable stablecoin per contract. Startup
 contains narrow additive SQLite upgrades, but there is no general migration
-framework, durable work queue, multisig/HSM integration, or formal contract
-audit. Preserve these limitations in documentation unless a change actually
-removes them.
+framework, durable work queue, authenticated multi-tenant API, hardware-backed
+or on-chain-constrained buyer wallet, multisig/HSM integration, or formal
+contract audit. Preserve these limitations in documentation unless a change
+actually removes them.

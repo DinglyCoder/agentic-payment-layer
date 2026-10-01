@@ -6,14 +6,20 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from .config import get_settings
 from .database import get_session
-from .models import AgentIdentity, Payment, PaymentStatus
+from .models import AgentIdentity, AutonomousPurchase, Payment, PaymentStatus, SpendingMandate
 from .schemas import (
     AgentRead,
+    AutonomousBuyerRead,
+    AutonomousDemoCreate,
+    AutonomousPurchaseCreate,
+    AutonomousPurchaseRead,
     DemoPaymentCreate,
     HealthRead,
     IntentEnvelopeCreate,
     IntentEnvelopeRead,
     PaymentRead,
+    SpendingMandateCreate,
+    SpendingMandateRead,
     StatsRead,
 )
 
@@ -87,5 +93,76 @@ async def register_intent(payload: IntentEnvelopeCreate, request: Request):
         raise HTTPException(status_code=403, detail="signed intents are only used in Sepolia mode")
     try:
         return await request.app.state.processor.register_intent(payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.get("/autonomous/buyer", response_model=AutonomousBuyerRead)
+async def autonomous_buyer(request: Request) -> AutonomousBuyerRead:
+    buyer = request.app.state.buyer
+    settings = get_settings()
+    return AutonomousBuyerRead(
+        address=buyer.address,
+        enabled=buyer.address is not None,
+        mode="simulation" if settings.simulation_mode else "sepolia",
+        seller_service=settings.seller_service,
+        seller_price_units=str(settings.seller_price_units),
+    )
+
+
+@router.post(
+    "/autonomous/mandates",
+    response_model=SpendingMandateRead,
+    status_code=status.HTTP_201_CREATED,
+)
+async def register_spending_mandate(
+    payload: SpendingMandateCreate, request: Request
+) -> SpendingMandate:
+    try:
+        return await request.app.state.buyer.register_mandate(payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.get("/autonomous/mandates/{mandate_id}", response_model=SpendingMandateRead)
+async def get_spending_mandate(mandate_id: str, session: SessionDep) -> SpendingMandate:
+    mandate = await session.get(SpendingMandate, mandate_id.lower())
+    if mandate is None:
+        raise HTTPException(status_code=404, detail="spending mandate not found")
+    return mandate
+
+
+@router.post(
+    "/autonomous/purchases",
+    response_model=AutonomousPurchaseRead,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_autonomous_purchase(
+    payload: AutonomousPurchaseCreate, request: Request
+) -> AutonomousPurchase:
+    try:
+        return await request.app.state.buyer.purchase(payload)
+    except (TimeoutError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.get("/autonomous/purchases/{purchase_id}", response_model=AutonomousPurchaseRead)
+async def get_autonomous_purchase(purchase_id: str, session: SessionDep) -> AutonomousPurchase:
+    purchase = await session.get(AutonomousPurchase, purchase_id.lower())
+    if purchase is None:
+        raise HTTPException(status_code=404, detail="autonomous purchase not found")
+    return purchase
+
+
+@router.post(
+    "/autonomous/demo",
+    response_model=AutonomousPurchaseRead,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_autonomous_demo(
+    payload: AutonomousDemoCreate, request: Request
+) -> AutonomousPurchase:
+    try:
+        return await request.app.state.buyer.create_demo(payload)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc

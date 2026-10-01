@@ -103,3 +103,72 @@ class IntentEnvelopeRead(IntentEnvelopeCreate):
     model_config = ConfigDict(from_attributes=True)
 
     verified: bool
+
+
+class SpendingMandateCreate(BaseModel):
+    owner: str = Field(pattern=ADDRESS_PATTERN)
+    delegate: str = Field(pattern=ADDRESS_PATTERN)
+    token: str = Field(pattern=ADDRESS_PATTERN)
+    max_amount_per_payment_units: str = Field(pattern=r"^[1-9][0-9]*$", max_length=78)
+    total_budget_units: str = Field(pattern=r"^[1-9][0-9]*$", max_length=78)
+    allowed_receiver: str = Field(pattern=ADDRESS_PATTERN)
+    allowed_service: str = Field(min_length=1, max_length=120)
+    expires_at: datetime
+    nonce: str = Field(pattern=HASH_PATTERN)
+    mandate_id: str = Field(pattern=HASH_PATTERN)
+    signature: str = Field(pattern=r"^0x[a-fA-F0-9]{130}$")
+
+
+class SpendingMandateRead(SpendingMandateCreate):
+    model_config = ConfigDict(from_attributes=True)
+
+    spent_units: str
+
+    @field_validator("expires_at", mode="before")
+    @classmethod
+    def mark_mandate_datetime_as_utc(cls, value: datetime) -> datetime:
+        return value.replace(tzinfo=UTC) if value.tzinfo is None else value
+
+
+class AutonomousPurchaseCreate(BaseModel):
+    mandate_id: str = Field(pattern=HASH_PATTERN)
+    prompt: str = Field(min_length=3, max_length=1000)
+
+
+class AutonomousDemoCreate(BaseModel):
+    prompt: str = Field(min_length=3, max_length=1000)
+    budget_units: str = Field(default="3000000", pattern=r"^[1-9][0-9]*$", max_length=78)
+
+
+class AutonomousPurchaseRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    purchase_id: str
+    mandate_id: str
+    payment_id: str | None
+    seller: str
+    service: str
+    prompt: str
+    amount_units: str
+    status: str
+    x402_requirement: dict
+    x402_payload: dict | None
+    result: dict | None
+    failure_reason: str | None
+    created_at: datetime
+    completed_at: datetime | None
+
+    @field_validator("created_at", "completed_at", mode="before")
+    @classmethod
+    def mark_purchase_datetimes_as_utc(cls, value: datetime | None) -> datetime | None:
+        if value is None or value.tzinfo is not None:
+            return value
+        return value.replace(tzinfo=UTC)
+
+
+class AutonomousBuyerRead(BaseModel):
+    address: str | None
+    enabled: bool
+    mode: str
+    seller_service: str
+    seller_price_units: str

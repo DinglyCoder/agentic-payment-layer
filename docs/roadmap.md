@@ -33,6 +33,16 @@ The core product objects should be:
 
 - Working ERC-20 escrow with recall, execution, replay protection, and sender
   recovery.
+- Sender-signed intent envelopes bind the payment ID, parties, base-unit amount,
+  token, purpose, service/SKU, mandate, expiry, and nonce to the on-chain
+  `metadataHash`. Missing, expired, replayed, or mismatched intent fails closed.
+- Risk decisions persist their policy version and each signal's actual
+  contribution, weight, and bounded evidence for direct dashboard rendering.
+- Sepolia ingestion resumes from a database-backed block/hash cursor, ingests
+  deposit and resolution events, retries failed resolutions with backoff, and
+  reconciles terminal state against the contract.
+- Frontend stablecoin formatting remains precise for arbitrarily large base-unit
+  values by using `BigInt` rather than JavaScript `Number`.
 - A live Ethereum Sepolia deployment using Circle test USDC.
 - A completed on-chain deposit and settlement with Etherscan proof.
 - Deterministic fraud rules that remain authoritative if the optional LLM
@@ -44,23 +54,31 @@ The core product objects should be:
 
 ## Critical gaps
 
-### Intent is not available to live risk analysis
+### Intent binding and bounded mandate enforcement are implemented
 
-The frontend hashes the payment memo, while the chain listener creates a
-generic description. The backend therefore cannot verify or assess the real
-purchase intent.
+The browser wallet now signs a canonical intent envelope before depositing, and
+the backend verifies and stores it before requiring its hash to match the
+on-chain `metadataHash`. Live risk analysis receives the signed purpose instead
+of a listener-generated generic description.
 
-Create a signed intent envelope containing the payment ID, parties, amount,
-token, purpose, service or SKU, mandate, expiry, nonce, and metadata hash. The
-backend must verify the signature and bind the envelope to the on-chain
-`metadataHash`.
+Week 2 added an independently owner-signed spending mandate covering a dedicated
+buyer delegate, token, seller, service, per-payment limit, total budget, nonce,
+and expiry. The buyer evaluates and reserves that policy before it signs a
+payment. The current dedicated wallet remains application-constrained rather
+than an on-chain smart-account session key.
 
-### The flow is not yet autonomous
+### One autonomous flow is implemented; discovery and custody remain narrow
 
-The guided chat is scripted, and a human still signs every wallet transaction.
-Build one real buyer agent and one real seller agent. The buyer should discover
-an offer, verify that it fits a signed budget mandate, pay without additional
-approval when allowed, receive work, and let Paradime settle or recall.
+The buyer now discovers a deterministic seller compute tool over MCP, negotiates
+a conforming x402 v2 MCP challenge using the custom `paradime-escrow` scheme,
+checks a signed mandate, pays without another owner signature, waits for
+Paradime's terminal decision, and receives work only after execution. Simulation
+mode proves the complete loop without credentials; the Sepolia signing path is
+implemented but has not been funded or exercised live.
+
+Next autonomy work should add multiple independently hosted sellers, discovery
+through a shared catalog, authenticated callers, and a smart-account or HSM/MPC
+session signer whose constraints do not depend solely on this service.
 
 ### Identity and reputation are local assertions
 
@@ -69,22 +87,27 @@ trust scores. Integrate ERC-8004 identity, reputation, and validation data.
 Require wallet ownership signatures and optionally verify domains, MCP
 endpoints, or other advertised services.
 
-### Risk explanations are not authoritative
+### Risk explanations are authoritative but policy configuration is static
 
-The frontend currently derives displayed signal contributions from presentation
-formulas. Persist the actual contribution, evidence, weight, and policy version
-for every risk signal and render those values directly.
+The backend now persists actual signal contributions, evidence, weights, and a
+policy version, and the frontend renders those records directly. Policy values
+are still configured globally; named policy configurations, reason codes, and
+configuration hashes remain future Trust Envelope and policy-studio work.
 
-### Chain processing is not durable
+### Chain processing has durable recovery but is not production-grade
 
-- The event cursor is held in memory and can miss deposits after a long outage.
-- Resolution events are not independently ingested.
-- A transient resolution error permanently marks a payment failed.
-- There is no reorganization handling or chain-to-database reconciliation.
+Implemented in Week 1:
 
-Persist the finalized block cursor and block hash, ingest all escrow events,
-classify retryable errors, add a durable retry queue, monitor pending
-transactions, and continuously reconcile database state with the contract.
+- Persisted next-block and prior-block-hash cursor
+- Confirmation-window rewind after a cursor hash mismatch
+- Independent deposit, execution, and recall event ingestion
+- Database-backed resolution attempts, error state, and exponential backoff
+- Continuous terminal-state reconciliation against contract storage
+
+Remaining production work includes finalized-block semantics, explicit
+retryable versus permanent error classification, pending-transaction monitoring
+and replacement, a general durable job queue, full orphaned-record handling
+after deep reorganizations, and redundant RPC providers.
 
 ### The contract only models a timed transfer
 
@@ -176,20 +199,35 @@ session continuously, settles consumed value, and refunds the remainder.
 
 ### Week 1: Make the current product truthful and reliable
 
-- Signed intent envelope bound to `metadataHash`
-- Persisted risk-signal contributions
-- BigInt-safe amount formatting
-- Durable event cursor and complete event ingestion
-- Resolution retries and on-chain reconciliation
-- Redeployed and source-verified `ParadimeEscrow`
+- [x] Signed intent envelope bound to `metadataHash`
+- [x] Persisted risk-signal contributions
+- [x] BigInt-safe amount formatting
+- [x] Durable event cursor and deposit/resolution event ingestion
+- [x] Resolution retries and on-chain reconciliation
+- [ ] Redeployed and source-verified `ParadimeEscrow`
+
+The implementation items above landed in commit `9519913`. The configured live
+contract remains the earlier ABI-compatible deployment at
+`0xb1248BabB341605552f228f12BcB2EE68510Ddd5`; it predates the source-level
+Paradime rename and must not be described as source-verified under that name.
+Deployment and verification commands are ready, but running them requires
+explicit authorization for the Sepolia gas spend and a verification provider
+path such as Sourcify or an encrypted Etherscan API key.
 
 ### Week 2: Complete one real autonomous purchase
 
-- Buyer agent with a signed spending mandate
-- Seller compute agent exposed through MCP
-- One MPP or x402 payment adapter
-- Session key or constrained agent wallet
-- No additional human signature below the authorized limit
+- [x] Buyer agent with a signed spending mandate
+- [x] Seller compute agent exposed through MCP
+- [x] x402 v2 MCP payment adapter using the `paradime-escrow` scheme
+- [x] Dedicated, application-constrained agent wallet
+- [x] No additional owner signature below the authorized limit
+
+The local integration test completes the full discovery, quote, mandate,
+payment, risk decision, x402 retry, and seller-result loop. Sepolia autonomous
+approval and deposit signing are implemented behind
+`AUTONOMOUS_BUYER_PRIVATE_KEY`, but no wallet was funded and no live autonomous
+purchase was submitted as part of this implementation. Production custody still
+requires on-chain smart-account constraints or HSM/MPC policy enforcement.
 
 ### Week 3: Close the trust loop
 

@@ -18,6 +18,14 @@ need a recursive entry in this file.
   intent envelopes, persisted risk-signal evidence, BigInt-safe amounts, a
   durable block/hash cursor, resolution-event ingestion and retries, and
   contract-state reconciliation.
+- Week 2's autonomous vertical slice is implemented: an owner-signed structured
+  budget mandate authorizes a dedicated buyer wallet, which discovers an MCP
+  seller tool, negotiates an x402 v2 challenge, pays through Paradime without a
+  second owner signature, and receives deterministic compute after execution.
+- Simulation mode completes that entire loop locally. The Sepolia buyer signing,
+  approval, deposit, and terminal-state wait path is implemented but was not
+  funded or exercised; it requires encrypted `AUTONOMOUS_BUYER_PRIVATE_KEY` and
+  an explicit `SELLER_ADDRESS`.
 - Live Sepolia deposits now require a pre-registered sender-signed intent whose
   canonical hash matches on-chain `metadataHash`. Missing, expired, replayed,
   or mismatched intent fails closed to a recall decision.
@@ -38,13 +46,36 @@ need a recursive entry in this file.
 - Runtime chain configuration and wallet keys are SOPS-encrypted in
   `secrets/sepolia.env`; no plaintext secret file is required.
 - Claude scoring: implemented but optional; no API key is stored in the repo.
-- Latest local verification: backend 6 tests, contracts 5 tests, frontend
-  production build, Ruff, Solidity/TypeScript checks, and ESLint all passed via
-  `make test` and `make format`.
+- Latest local verification: backend 10 tests, contracts 5 tests, frontend
+  production build, Ruff, Solidity/TypeScript checks, and ESLint all passed.
 
 ## Functional commit history
 
-### This commit — Implement roadmap Week 1 reliability work (2026-10-01)
+### This commit — Complete one autonomous purchase (2026-10-01)
+
+- Added canonical owner-signed spending mandates with delegate, asset,
+  counterparty, service, per-payment, total-budget, nonce, and expiry controls.
+- Added a dedicated buyer session wallet that discovers and invokes a paid MCP
+  tool, reserves budget before payment, and signs without another owner prompt.
+- Added an x402 v2 MCP adapter with a custom `paradime-escrow` scheme and a
+  seller that verifies the executed payment, quote, purchase, and delegate
+  signature before releasing work.
+- Added persisted autonomous-purchase audit records, a credential-free complete
+  simulation endpoint, and an optional Sepolia approval/deposit path.
+- Added API coverage for the complete flow, budget exhaustion, MCP discovery,
+  and the x402 payment-required response.
+
+Verification for the working tree:
+
+- Backend: 10 tests passed; Ruff lint and format passed.
+- Contracts: 5 tests passed; Solidity compilation and TypeScript checks passed.
+- Frontend: ESLint and the Vite production build passed.
+
+No Sepolia transaction, deployment, secret update, or test-token spend occurred.
+The dedicated buyer key is constrained by application policy only; production
+custody still needs authenticated tenants and HSM/MPC or smart-account controls.
+
+### `9519913` — Implement roadmap Week 1 reliability work (2026-10-01)
 
 - Added canonical signed intent envelopes covering payment ID, wallets, base-unit
   amount, token, purpose, service/SKU, mandate, expiry, and nonce. The backend
@@ -127,13 +158,16 @@ become part of the active task.
 1. With explicit approval, deploy the renamed `ParadimeEscrow`, source-verify
    it through Etherscan or Sourcify, update the encrypted contract address, and
    run a signed-intent deposit through resolution before describing it as live.
-2. Add integration coverage for cursor restart/reorg behavior, resolution
+2. Add independently hosted seller discovery and replace the raw dedicated
+   buyer key with authenticated, hardware-backed or on-chain-constrained session
+   authority before treating autonomous Sepolia purchases as production-safe.
+3. Add integration coverage for cursor restart/reorg behavior, resolution
    retries, reconciliation, and invalid intent/deposit binding.
-3. Add automated browser coverage for wallet intent signing, registration,
+4. Add automated browser coverage for wallet intent and mandate signing, registration,
    approval, deposit, dashboard ingestion, and resolution proof rendering.
-4. Replace SQLite and in-process scheduling with durable production components
+5. Replace SQLite and in-process scheduling with durable production components
    before any multi-instance deployment.
-5. Add HSM/MPC or multisig signing, database migrations, RPC failover, metrics,
+6. Add HSM/MPC or multisig signing, database migrations, RPC failover, metrics,
    and a contract security audit before considering real-value use.
 
 ## Handoff checklist

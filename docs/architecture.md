@@ -33,6 +33,31 @@ the fraud window, reuse an ID, or resolve an escrow twice.
    database state after restarts or ambiguous transaction outcomes.
 7. Every persisted state transition is broadcast to dashboard clients.
 
+## Autonomous purchase pipeline
+
+1. The owner signs a canonical spending mandate naming the dedicated buyer
+   wallet, token, seller, service, per-payment ceiling, total budget, nonce, and
+   expiry. Paradime verifies the signature and rejects replayed nonces.
+2. The buyer discovers the seller's `analyze_text` tool through MCP
+   `tools/list`, calls it without payment, and receives the x402 v2
+   `PaymentRequired` object in both structured and text forms.
+3. Before signing anything, the buyer matches the quote against every mandate
+   constraint and reserves the quoted base-unit amount under an in-process
+   serialization lock.
+4. In simulation it creates an equivalent scored payment. In Sepolia mode the
+   dedicated buyer signs the intent, registers it, approves test USDC if needed,
+   deposits into escrow, and waits for the listener and arbitrator to reach a
+   terminal state.
+5. Only an executed payment is attached to the retried MCP `tools/call` in
+   `_meta["x402/payment"]`. The seller verifies the delegate signature and the
+   persisted payment's parties, amount, purchase, and quoted terms before
+   returning the compute result.
+
+This is an x402 v2 transport adapter with a custom `paradime-escrow` scheme.
+It intentionally does not claim to be the EIP-3009 `exact` scheme. The session
+wallet is constrained by Paradime's application policy; possession of its raw
+key is still unrestricted at the chain layer.
+
 ## Threat model
 
 | Threat | Prototype control | Production follow-up |
@@ -44,6 +69,9 @@ the fraud window, reuse an ID, or resolve an escrow twice.
 | LLM outage or malformed output | Deterministic rules remain authoritative | Circuit breakers and provider telemetry |
 | LLM prompt injection in metadata | Structured, bounded facts only | Classifier isolation and signed service schemas |
 | Backend restart near deadline | Persisted cursor and DB-backed retry state are rescanned | Durable job queue and active/standby signer |
+| Mandate replay or over-spend | Canonical owner signature, unique nonce, per-call and total limits, serialized budget reservation | Database row locking, authenticated tenants, on-chain smart-account permissions |
+| Paid tool replay or substitution | Purchase-bound delegate signature and exact payment/quote matching | Standard facilitator integration and protocol conformance suite |
+| Buyer session-key compromise | Dedicated wallet with application-enforced mandate limits | HSM/MPC or smart-account session keys with on-chain constraints |
 | Stuck funds | Sender recovery after one day | Policy-specific timeout and formal verification |
 
 ## Stablecoin policy

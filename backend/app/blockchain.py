@@ -44,6 +44,7 @@ class EscrowChain:
         self.enabled = settings.chain_enabled
         self._stop = asyncio.Event()
         self._nonce_lock = asyncio.Lock()
+        self._buyer_nonce_lock = asyncio.Lock()
         self.w3: AsyncWeb3 | None = None
         self.account: LocalAccount | None = None
         self.contract = None
@@ -208,6 +209,76 @@ class EscrowChain:
         assert self.contract is not None
         payment = await self.contract.functions.payments(HexBytes(payment_id)).call()
         return int(payment[5])
+
+    async def deposit_from(
+        self,
+        account: LocalAccount,
+        payment_id: str,
+        receiver: str,
+        amount_units: int,
+        metadata_hash: str,
+    ) -> str:
+        if not self.enabled:
+            raise RuntimeError("chain deposit requested in simulation mode")
+        assert self.w3 is not None and self.contract is not None
+        token = self.w3.eth.contract(
+            address=Web3.to_checksum_address(self.settings.payment_token_address),
+            abi=[
+                {
+                    "inputs": [
+                        {"internalType": "address", "name": "owner", "type": "address"},
+                        {"internalType": "address", "name": "spender", "type": "address"},
+                    ],
+                    "name": "allowance",
+                    "outputs": [{"internalType": "uint256", "name": "", "type": "uint256"}],
+                    "stateMutability": "view",
+                    "type": "function",
+                },
+                {
+                    "inputs": [
+                        {"internalType": "address", "name": "spender", "type": "address"},
+                        {"internalType": "uint256", "name": "amount", "type": "uint256"},
+                    ],
+                    "name": "approve",
+                    "outputs": [{"internalType": "bool", "name": "", "type": "bool"}],
+                    "stateMutability": "nonpayable",
+                    "type": "function",
+                },
+            ],
+        )
+        async with self._buyer_nonce_lock:
+            allowance = await token.functions.allowance(
+                account.address, self.contract.address
+            ).call()
+            if allowance < amount_units:
+                approval = await self._send_account_transaction(
+                    account,
+                    token.functions.approve(self.contract.address, amount_units),
+                )
+                if approval["status"] != 1:
+                    raise RuntimeError("autonomous token approval reverted")
+            receipt = await self._send_account_transaction(
+                account,
+                self.contract.functions.deposit(
+                    HexBytes(payment_id),
+                    Web3.to_checksum_address(receiver),
+                    amount_units,
+                    HexBytes(metadata_hash),
+                ),
+            )
+        if receipt["status"] != 1:
+            raise RuntimeError("autonomous escrow deposit reverted")
+        return HexBytes(receipt["transactionHash"]).to_0x_hex()
+
+    async def _send_account_transaction(self, account: LocalAccount, contract_call):
+        assert self.w3 is not None
+        nonce = await self.w3.eth.get_transaction_count(account.address, "pending")
+        transaction = await contract_call.build_transaction(
+            {"from": account.address, "nonce": nonce, "chainId": await self.w3.eth.chain_id}
+        )
+        signed = account.sign_transaction(transaction)
+        tx_hash = await self.w3.eth.send_raw_transaction(signed.raw_transaction)
+        return await self.w3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
 
     def stop(self) -> None:
         self._stop.set()

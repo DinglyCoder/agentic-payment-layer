@@ -21,6 +21,10 @@ settlement for payments that use blockchain rails.
 - **Signed intent:** the browser wallet signs the complete purchase intent and
   the escrow commits its canonical hash, preventing the backend from screening
   a generic or substituted memo.
+- **Autonomous purchase:** an owner-signed budget mandate authorizes a dedicated
+  buyer session wallet to discover a seller MCP tool, negotiate an x402 v2
+  challenge, pay through Paradime, and receive deterministic compute without a
+  second owner signature.
 - **Live operations dashboard:** a React/Vite interface updated over WebSocket,
   with a credential-free simulation mode for demos.
 
@@ -64,6 +68,22 @@ Open <http://localhost:5173>. The API is documented at
 <http://localhost:8000/docs>. Simulation mode seeds representative payments and
 lets the **Simulate payment** form exercise the full scoring and WebSocket UI
 without a wallet or API key.
+
+The API also runs a complete credential-free autonomous purchase. It creates a
+simulated owner signature, enforces a 3 USDC mandate, pays the 1 USDC seller
+offer, and returns the persisted result:
+
+```bash
+curl -sS http://localhost:8000/api/autonomous/demo \
+  -H 'content-type: application/json' \
+  -d '{"prompt":"Classify this trusted and safe compute result","budget_units":"3000000"}'
+```
+
+For a caller-owned mandate, fetch the delegate address from
+`GET /api/autonomous/buyer`, sign the canonical mandate described by the API
+schema, register it at `POST /api/autonomous/mandates`, then submit any purchase
+within its remaining limits to `POST /api/autonomous/purchases`. Purchase calls
+do not request another owner signature.
 
 ## Sepolia mode
 
@@ -116,6 +136,12 @@ from the [Circle testnet faucet](https://faucet.circle.com/).
 
 4. Optionally set `ANTHROPIC_API_KEY`. If Claude is unavailable, the fraud
    engine fails closed to its deterministic rules rather than skipping review.
+
+5. To enable autonomous Sepolia purchases, also provide encrypted
+   `AUTONOMOUS_BUYER_PRIVATE_KEY` and `SELLER_ADDRESS`. Fund only the dedicated
+   buyer wallet with the test ETH and test USDC needed for the mandate. Paradime
+   enforces the signed policy before signing approval and escrow transactions;
+   the raw key itself is not an on-chain constrained smart-account session key.
 
 Private keys and API keys must never be committed. For durable local secrets,
 store them as SOPS-encrypted files under `secrets/` and launch commands through

@@ -1,6 +1,6 @@
 [project]
 name = "paradime-api"
-version = "0.1.0"
+version = "0.2.0"
 description = "Trust and arbitration service for autonomous agent payments"
 readme = "README.md"
 requires-python = ">=3.12"

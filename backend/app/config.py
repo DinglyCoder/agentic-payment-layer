@@ -8,7 +8,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     app_name: str = "Paradime"
-    app_version: str = "0.1.0"
+    app_version: str = "0.2.0"
     simulation_mode: bool = True
     database_url: str = "sqlite+aiosqlite:///./paradime.db"
     frontend_origin: str = "http://localhost:5173"
@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     escrow_contract_address: str | None = None
     payment_token_address: str | None = None
     arbitrator_private_key: SecretStr | None = None
+    autonomous_buyer_private_key: SecretStr | None = None
     chain_confirmations: int = 2
     chain_start_block: int | None = None
     poll_interval_seconds: float = 3.0
@@ -33,6 +34,13 @@ class Settings(BaseSettings):
     velocity_medium_count: int = 3
     velocity_high_count: int = 5
     recall_threshold: int = 70
+
+    simulation_token_address: str = "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238"
+    seller_address: str | None = None
+    simulation_seller_address: str = "0x2222222222222222222222222222222222222222"
+    seller_service: str = "text-analysis-v1"
+    seller_price_units: int = 1_000_000
+    autonomous_purchase_timeout_seconds: int = 180
 
     @property
     def chain_enabled(self) -> bool:
@@ -53,6 +61,10 @@ class Settings(BaseSettings):
             ]
             if missing:
                 raise ValueError(f"Sepolia mode requires: {', '.join(missing)}")
+            if self.autonomous_buyer_private_key and not self.seller_address:
+                raise ValueError(
+                    "SELLER_ADDRESS is required when autonomous Sepolia buying is enabled"
+                )
         return self
 
 

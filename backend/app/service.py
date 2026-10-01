@@ -199,6 +199,53 @@ class PaymentProcessor:
             await self._assess(payment, session, settle_immediately=True)
             return payment
 
+    async def create_autonomous_demo(
+        self,
+        *,
+        payment_id: str,
+        sender: str,
+        receiver: str,
+        amount_units: str,
+        description: str,
+        metadata_hash: str,
+    ) -> Payment:
+        now = utc_now()
+        async with self.sessions() as session:
+            payment = Payment(
+                payment_id=payment_id.lower(),
+                sender=sender.lower(),
+                receiver=receiver.lower(),
+                amount_units=amount_units,
+                metadata_hash=metadata_hash.lower(),
+                description=description,
+                deposit_tx_hash=(
+                    "0x" + hashlib.sha256(f"autonomous:{payment_id}".encode()).hexdigest()
+                ),
+                deposited_at=now,
+                recall_deadline=now + timedelta(seconds=30),
+                status=PaymentStatus.SCORING,
+                source="simulation",
+            )
+            session.add(payment)
+            await session.commit()
+            await self.websocket.broadcast("payment_detected", as_payload(payment))
+            await self._assess(payment, session, settle_immediately=True)
+            return payment
+
+    async def wait_for_terminal_payment(self, payment_id: str, timeout_seconds: int) -> Payment:
+        deadline = time.monotonic() + timeout_seconds
+        while time.monotonic() < deadline:
+            async with self.sessions() as session:
+                payment = await session.get(Payment, payment_id.lower())
+                if payment and payment.status in {
+                    PaymentStatus.EXECUTED,
+                    PaymentStatus.RECALLED,
+                    PaymentStatus.FAILED,
+                }:
+                    return payment
+            await asyncio.sleep(1)
+        raise TimeoutError("timed out waiting for autonomous payment resolution")
+
     async def _assess(
         self, payment: Payment, session, *, settle_immediately: bool
     ) -> RiskAssessment:
