@@ -15,9 +15,35 @@ export interface Payment {
   risk_score: number | null;
   risk_level: "low" | "medium" | "high" | null;
   risk_reasons: string[];
+  risk_signals: RiskSignal[];
+  policy_version: string | null;
   llm_score: number | null;
   source: string;
   decision_latency_ms: number | null;
+  resolution_attempts: number;
+  resolution_error: string | null;
+}
+
+export interface RiskSignal {
+  name: string;
+  contribution: number;
+  weight: number;
+  evidence: Record<string, unknown>;
+}
+
+export interface IntentEnvelopeInput {
+  payment_id: string;
+  sender: string;
+  receiver: string;
+  amount_units: string;
+  token: string;
+  purpose: string;
+  service_or_sku: string;
+  mandate: string;
+  expires_at: string;
+  nonce: string;
+  metadata_hash: string;
+  signature: string;
 }
 
 export interface Agent {

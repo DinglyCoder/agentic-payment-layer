@@ -6,7 +6,7 @@ deployment state, and any follow-up that materially affects the next agent.
 Documentation-only bookkeeping remains available in `git log` and does not
 need a recursive entry in this file.
 
-## Current state — 2026-09-21
+## Current state — 2026-10-01
 
 - Branch: `main`
 - Remote: `https://github.com/DinglyCoder/agentic-payment-layer.git`
@@ -14,11 +14,23 @@ need a recursive entry in this file.
   removed; the outer local workspace directory retains its existing name.
 - Local modes: simulation and live Sepolia flows are both implemented. The
   four frontend routes are `/`, `/pay`, `/dashboard`, and `/agents`.
+- Week 1 reliability work is implemented: signed
+  intent envelopes, persisted risk-signal evidence, BigInt-safe amounts, a
+  durable block/hash cursor, resolution-event ingestion and retries, and
+  contract-state reconciliation.
+- Live Sepolia deposits now require a pre-registered sender-signed intent whose
+  canonical hash matches on-chain `metadataHash`. Missing, expired, replayed,
+  or mismatched intent fails closed to a recall decision.
 - Sepolia escrow: `0xb1248BabB341605552f228f12BcB2EE68510Ddd5` with Circle
   test USDC `0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238` and arbitrator
   `0x26e220eb8bDeA0cc238e166165e79742bE526B3D`.
 - The configured deployment predates the source-level `ParadimeEscrow` rename.
   It is ABI-compatible but is not source-verified under the Paradime name.
+- A production-profile deployment and source-verification workflow is present,
+  but no renamed contract was deployed during the Week 1 implementation. The
+  attempted deployment was rejected pending explicit approval for the
+  irreversible Sepolia gas spend; `secrets/sepolia.env` also has no
+  `ETHERSCAN_API_KEY`, so use Sourcify or add an encrypted key before deploying.
 - Live proof payment: 1 USDC deposited in transaction
   `0xd42af319d8d0b90f637882448f63045b180f1c0ad5287b006844ab1f4349d818`
   and executed in transaction
@@ -26,11 +38,36 @@ need a recursive entry in this file.
 - Runtime chain configuration and wallet keys are SOPS-encrypted in
   `secrets/sepolia.env`; no plaintext secret file is required.
 - Claude scoring: implemented but optional; no API key is stored in the repo.
-- Local verification for `652356b`: backend 5 tests, contracts 5 tests,
-  frontend production build, Ruff, Solidity/TypeScript checks, and ESLint all
-  passed.
+- Latest local verification: backend 6 tests, contracts 5 tests, frontend
+  production build, Ruff, Solidity/TypeScript checks, and ESLint all passed via
+  `make test` and `make format`.
 
 ## Functional commit history
+
+### This commit — Implement roadmap Week 1 reliability work (2026-10-01)
+
+- Added canonical signed intent envelopes covering payment ID, wallets, base-unit
+  amount, token, purpose, service/SKU, mandate, expiry, and nonce. The backend
+  verifies wallet ownership and binds each envelope to the deposit's
+  `metadataHash`; invalid binding deterministically triggers recall.
+- Persisted authoritative risk-signal contributions, weights, evidence, and
+  policy version, and replaced the dashboard's synthetic contribution formulas.
+- Replaced unsafe frontend amount conversion with `BigInt` formatting.
+- Added a database-backed block/hash cursor, bounded reorg rewind, ingestion of
+  deposit/execution/recall events, retryable resolution state with exponential
+  backoff, and contract-to-database reconciliation.
+- Added additive startup upgrades for existing SQLite payment tables, expanded
+  the backend ABI, updated cross-boundary types and documentation, and added
+  signed-intent tampering and risk-signal tests.
+- Added production-profile Sepolia deployment and verification commands. The
+  actual renamed deployment and source verification remain pending explicit
+  authorization and an available verification provider credential/path.
+
+Verification for the working tree:
+
+- Backend: 6 tests passed; Ruff lint and format passed.
+- Contracts: 5 tests passed; Solidity compilation and TypeScript checks passed.
+- Frontend: ESLint and the Vite production build passed.
 
 ### `652356b` — Launch Paradime Sepolia payment experience (2026-09-21)
 
@@ -87,13 +124,16 @@ Verification at commit:
 These are not committed promises; choose them only when requested or when they
 become part of the active task.
 
-1. Redeploy and verify the renamed `ParadimeEscrow` source on Etherscan if
-   on-chain source branding matters; otherwise retain the compatible deployment.
-2. Add automated browser coverage for wallet connection, approval, deposit,
-   dashboard ingestion, and resolution proof rendering.
-3. Replace SQLite and in-process scheduling with durable production components
+1. With explicit approval, deploy the renamed `ParadimeEscrow`, source-verify
+   it through Etherscan or Sourcify, update the encrypted contract address, and
+   run a signed-intent deposit through resolution before describing it as live.
+2. Add integration coverage for cursor restart/reorg behavior, resolution
+   retries, reconciliation, and invalid intent/deposit binding.
+3. Add automated browser coverage for wallet intent signing, registration,
+   approval, deposit, dashboard ingestion, and resolution proof rendering.
+4. Replace SQLite and in-process scheduling with durable production components
    before any multi-instance deployment.
-4. Add HSM/MPC or multisig signing, database migrations, RPC failover, metrics,
+5. Add HSM/MPC or multisig signing, database migrations, RPC failover, metrics,
    and a contract security audit before considering real-value use.
 
 ## Handoff checklist

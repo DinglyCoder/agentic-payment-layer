@@ -4,6 +4,7 @@ import hardhatToolboxMochaEthers from "@nomicfoundation/hardhat-toolbox-mocha-et
 
 const sepoliaRpcUrl = process.env.SEPOLIA_RPC_URL;
 const deployerPrivateKey = process.env.DEPLOYER_PRIVATE_KEY;
+const etherscanApiKey = process.env.ETHERSCAN_API_KEY;
 
 export default defineConfig({
   plugins: [hardhatToolboxMochaEthers],
@@ -13,6 +14,7 @@ export default defineConfig({
       optimizer: { enabled: true, runs: 200 },
     },
   },
+  verify: etherscanApiKey ? { etherscan: { apiKey: etherscanApiKey } } : undefined,
   networks: sepoliaRpcUrl
     ? {
         sepolia: {

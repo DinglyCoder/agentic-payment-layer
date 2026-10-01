@@ -4,10 +4,13 @@ import {
   Eip1193Provider,
   getAddress,
   hexlify,
-  id,
+  getBytes,
+  keccak256,
   parseUnits,
   randomBytes,
+  toUtf8Bytes,
 } from "ethers";
+import { api } from "./api";
 import type { DemoPaymentInput, Health } from "./types";
 
 const SEPOLIA_CHAIN_ID = 11155111n;
@@ -110,8 +113,27 @@ export async function depositSepoliaUsdc(
 
   onStage("deposit");
   const paymentId = hexlify(randomBytes(32));
+  const expiresAt = new Date(Math.floor((Date.now() + 5 * 60_000) / 1000) * 1000)
+    .toISOString()
+    .replace(".000Z", "Z");
+  const nonce = hexlify(randomBytes(32));
+  const intent = {
+    payment_id: paymentId.toLowerCase(),
+    sender: sender.toLowerCase(),
+    receiver: receiver.toLowerCase(),
+    amount_units: amount.toString(),
+    token: token.toLowerCase(),
+    purpose: input.description,
+    service_or_sku: "interactive-payment",
+    mandate: "User-approved wallet transaction",
+    expires_at: expiresAt,
+    nonce: nonce.toLowerCase(),
+  };
+  const metadataHash = keccak256(toUtf8Bytes(JSON.stringify(intent)));
+  const signature = await signer.signMessage(getBytes(metadataHash));
+  await api.registerIntent({ ...intent, metadata_hash: metadataHash, signature });
   const escrowContract = new Contract(escrow, ESCROW_ABI, signer);
-  const deposit = await escrowContract.deposit(paymentId, receiver, amount, id(input.description));
+  const deposit = await escrowContract.deposit(paymentId, receiver, amount, metadataHash);
   const receipt = await deposit.wait();
   if (!receipt || receipt.status !== 1) {
     throw new Error("Escrow deposit transaction failed");

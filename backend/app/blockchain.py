@@ -28,6 +28,14 @@ class DepositEvent:
     block_number: int
 
 
+@dataclass(frozen=True, slots=True)
+class ResolutionEvent:
+    payment_id: str
+    status: str
+    transaction_hash: str
+    block_number: int
+
+
 class EscrowChain:
     """Async Sepolia event source and single-key arbitrator transaction signer."""
 
@@ -96,23 +104,34 @@ class EscrowChain:
     async def listen(
         self,
         on_deposit: Callable[[DepositEvent], Awaitable[None]],
+        on_resolution: Callable[[ResolutionEvent], Awaitable[None]],
         on_tick: Callable[[], Awaitable[None]],
+        load_cursor: Callable[[int], Awaitable[tuple[int, str | None]]],
+        save_cursor: Callable[[int, str], Awaitable[None]],
+        on_reconcile: Callable[[], Awaitable[None]],
     ) -> None:
         if not self.enabled:
             return
         assert self.w3 is not None and self.contract is not None
         latest = await self.w3.eth.block_number
-        next_block = self.settings.chain_start_block or max(0, latest - 100)
+        default_start = self.settings.chain_start_block or max(0, latest - 100)
+        next_block, previous_hash = await load_cursor(default_start)
 
         while not self._stop.is_set():
             try:
                 head = await self.w3.eth.block_number
                 safe_head = head - self.settings.chain_confirmations
+                if previous_hash and next_block > 0:
+                    prior = await self.w3.eth.get_block(next_block - 1)
+                    if HexBytes(prior["hash"]).to_0x_hex() != previous_hash:
+                        rewind = next_block - self.settings.chain_confirmations - 1
+                        next_block = max(default_start, rewind)
+                        previous_hash = None
                 if safe_head >= next_block:
-                    logs = await self.contract.events.PaymentDeposited().get_logs(
+                    deposits = await self.contract.events.PaymentDeposited().get_logs(
                         from_block=next_block, to_block=safe_head
                     )
-                    for log in logs:
+                    for log in deposits:
                         args = log["args"]
                         await on_deposit(
                             DepositEvent(
@@ -127,8 +146,28 @@ class EscrowChain:
                                 block_number=log["blockNumber"],
                             )
                         )
+                    for event_name, status in (
+                        ("PaymentExecuted", "executed"),
+                        ("PaymentRecalled", "recalled"),
+                    ):
+                        logs = await getattr(self.contract.events, event_name)().get_logs(
+                            from_block=next_block, to_block=safe_head
+                        )
+                        for log in logs:
+                            await on_resolution(
+                                ResolutionEvent(
+                                    payment_id=HexBytes(log["args"]["paymentId"]).to_0x_hex(),
+                                    status=status,
+                                    transaction_hash=HexBytes(log["transactionHash"]).to_0x_hex(),
+                                    block_number=log["blockNumber"],
+                                )
+                            )
+                    block = await self.w3.eth.get_block(safe_head)
+                    previous_hash = HexBytes(block["hash"]).to_0x_hex()
                     next_block = safe_head + 1
+                    await save_cursor(next_block, previous_hash)
                 await on_tick()
+                await on_reconcile()
             except asyncio.CancelledError:
                 raise
             except Exception:
@@ -162,6 +201,13 @@ class EscrowChain:
         if receipt["status"] != 1:
             raise RuntimeError(f"arbitration transaction reverted: {tx_hash.to_0x_hex()}")
         return tx_hash.to_0x_hex()
+
+    async def payment_state(self, payment_id: str) -> int:
+        if not self.enabled:
+            return 0
+        assert self.contract is not None
+        payment = await self.contract.functions.payments(HexBytes(payment_id)).call()
+        return int(payment[5])
 
     def stop(self) -> None:
         self._stop.set()

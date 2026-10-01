@@ -16,7 +16,11 @@ settlement for payments that use blockchain rails.
 - **Autonomous fraud engine:** FastAPI + SQLAlchemy service combining registry,
   amount, and velocity rules with an optional Claude risk assessment.
 - **Event-driven settlement:** an async `web3.py` listener ingests Sepolia
-  `PaymentDeposited` events and signs `executePayment` or `recallPayment` calls.
+  deposit and resolution events from a durable cursor, retries arbitration, and
+  reconciles local records with contract state.
+- **Signed intent:** the browser wallet signs the complete purchase intent and
+  the escrow commits its canonical hash, preventing the backend from screening
+  a generic or substituted memo.
 - **Live operations dashboard:** a React/Vite interface updated over WebSocket,
   with a credential-free simulation mode for demos.
 
@@ -26,7 +30,9 @@ sequenceDiagram
     participant E as Trust-layer escrow
     participant T as Trust and risk engine
     participant B as Seller agent
-    A->>E: deposit(paymentId, seller, metadataHash)
+    A->>T: signed intent envelope
+    T-->>A: verified intent stored
+    A->>E: deposit(paymentId, seller, intentHash)
     E-->>T: PaymentDeposited event
     T->>T: registry + velocity + amount + Claude
     alt suspicious during 30 seconds
@@ -79,6 +85,14 @@ from the [Circle testnet faucet](https://faucet.circle.com/).
    with-secrets ../secrets/sepolia.env -- npm run deploy:sepolia
    ```
 
+   Record the printed address, then source-verify the exact production build
+   (the encrypted environment must include `ETHERSCAN_API_KEY`):
+
+   ```bash
+   with-secrets ../secrets/sepolia.env -- npm run verify:sepolia -- \
+     DEPLOYED_ADDRESS PAYMENT_TOKEN_ADDRESS ARBITRATOR_ADDRESS
+   ```
+
 2. Configure the backend with the deployed address and the same arbitrator
    wallet:
 
@@ -95,10 +109,10 @@ from the [Circle testnet faucet](https://faucet.circle.com/).
    npm run dev
    ```
 
-   The wallet must be on Ethereum Sepolia. A payment may require two signatures:
-   one USDC approval and one escrow deposit. The backend waits for the configured
-   confirmation depth before showing the payment and later submits the
-   execute/recall transaction.
+   The wallet must be on Ethereum Sepolia. The wallet signs an intent message,
+   then may require two transactions: one USDC approval and one escrow deposit.
+   The backend waits for the configured confirmation depth before showing the
+   payment and later submits the execute/recall transaction.
 
 4. Optionally set `ANTHROPIC_API_KEY`. If Claude is unavailable, the fraud
    engine fails closed to its deterministic rules rather than skipping review.

@@ -14,15 +14,24 @@ the fraud window, reuse an ID, or resolve an escrow twice.
 
 ## Service pipeline
 
-1. `EscrowChain` polls confirmed `PaymentDeposited` logs from a configurable
-   start block. A database primary key makes ingestion idempotent.
-2. `PaymentProcessor` records the deposit before invoking external services.
-3. `FraudEngine` looks up both wallets, queries recent sender velocity, and
+1. The payer signs a canonical intent envelope. Paradime verifies wallet
+   ownership and stores the envelope before its hash is committed as the
+   escrow deposit's `metadataHash`.
+2. `EscrowChain` polls confirmed deposit and resolution logs from a persisted
+   block/hash cursor. A database primary key makes ingestion idempotent and a
+   hash mismatch rewinds the cursor across the confirmation window.
+3. `PaymentProcessor` rejects missing, expired, replayed, or mismatched intents,
+   then records a valid deposit before invoking external services.
+4. `FraudEngine` looks up both wallets, queries recent sender velocity, and
    applies amount policy. It optionally asks Claude for a bounded 0–100 signal.
-4. The final score can only stay at or increase above the deterministic rule
+   Every contribution, its weight, evidence, and policy version is persisted.
+5. The final score can only stay at or increase above the deterministic rule
    score. At 70 or above the signer recalls immediately; otherwise the payment
    is queued until the contract's recall deadline passes.
-5. Every persisted state transition is broadcast to dashboard clients.
+6. Resolution failures retain the intended decision and retry with bounded
+   exponential backoff. Resolution events and periodic contract reads reconcile
+   database state after restarts or ambiguous transaction outcomes.
+7. Every persisted state transition is broadcast to dashboard clients.
 
 ## Threat model
 
@@ -31,10 +40,10 @@ the fraud window, reuse an ID, or resolve an escrow twice.
 | Signer compromise | Dedicated arbitrator role; sender escape hatch | HSM/MPC signer, rotation delay, multisig pause |
 | Duplicate/replayed deposit | On-chain mapping + DB primary key | Cross-chain domain separator |
 | Reentrancy | Checks-effects-interactions + lock | External audit and fuzzing |
-| RPC reorganization | Configurable confirmation depth | Redundant RPCs and finalized-block tracking |
+| RPC reorganization | Confirmation depth, persisted block hash, bounded rewind | Redundant RPCs and finalized-block tracking |
 | LLM outage or malformed output | Deterministic rules remain authoritative | Circuit breakers and provider telemetry |
 | LLM prompt injection in metadata | Structured, bounded facts only | Classifier isolation and signed service schemas |
-| Backend restart near deadline | DB-backed approved state is rescanned | Durable job queue and active/standby signer |
+| Backend restart near deadline | Persisted cursor and DB-backed retry state are rescanned | Durable job queue and active/standby signer |
 | Stuck funds | Sender recovery after one day | Policy-specific timeout and formal verification |
 
 ## Stablecoin policy

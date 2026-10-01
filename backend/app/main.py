@@ -35,7 +35,14 @@ async def lifespan(app: FastAPI):
     if chain.enabled:
         await chain.validate()
         chain_task = asyncio.create_task(
-            chain.listen(processor.process_deposit, processor.settle_due),
+            chain.listen(
+                processor.process_deposit,
+                processor.process_resolution,
+                processor.settle_due,
+                processor.load_cursor,
+                processor.save_cursor,
+                processor.reconcile,
+            ),
             name="sepolia-event-listener",
         )
         logger.info("Sepolia escrow listener started")

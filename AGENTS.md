@@ -46,21 +46,28 @@ authorization tests in `contracts/test/ParadimeEscrow.ts`.
 - `app/main.py`: FastAPI lifespan, dependency wiring, listener startup, CORS,
   and `/ws/payments`.
 - `app/api.py`: health, payment, agent, statistics, and simulation endpoints.
+  `/api/intents` accepts Sepolia intent envelopes only after their sender
+  signature, canonical hash, configured token, nonce, and expiry validate.
 - `app/service.py`: `PaymentProcessor` owns the transaction lifecycle.
-  `process_deposit` is the real-chain entry point, `create_demo` is the
-  credential-free equivalent, `_assess` persists the fraud decision,
-  `settle_due` finds approved payments after their window, and `_resolve`
-  submits the arbitration transaction.
+  `register_intent` persists verified envelopes, `process_deposit` binds them
+  to confirmed deposits, and `create_demo` is the credential-free equivalent.
+  `_assess` persists the fraud decision and its authoritative signals;
+  `settle_due` retries eligible resolutions, `_resolve` submits arbitration,
+  and `reconcile` repairs local terminal state from the contract.
 - `app/fraud.py`: `FraudEngine.score` combines registry, amount, and recent
   velocity checks with an optional Claude assessment. The deterministic score
   is a floor: an LLM response may increase it but must never reduce it. LLM
   failure must leave deterministic controls operational.
 - `app/blockchain.py`: `EscrowChain.listen` polls confirmed Sepolia logs and
-  `resolve` serializes signer nonces while sending execute/recall calls. Use
-  the latest Sepolia block timestamp—not the host clock—when deciding whether
-  a payment is ready for post-window execution.
+  persists its next-block and prior-block-hash cursor through callbacks. It
+  ingests deposit, execution, and recall events, rewinds on a cursor hash
+  mismatch, and `resolve` serializes signer nonces while sending transactions.
+  Use the latest Sepolia block timestamp—not the host clock—when deciding
+  whether a payment is ready for post-window execution.
 - `app/models.py`: SQLAlchemy persistence and state enums. `payment_id` is both
-  the on-chain identifier and the ingestion idempotency key.
+  the on-chain identifier and the ingestion idempotency key. `IntentEnvelope`
+  stores signed purchase intent, while `ChainCursor` stores durable listener
+  progress. Resolution retry state belongs on `Payment`.
 - `app/websocket.py`: in-process dashboard fanout after persisted transitions.
 
 Store wallet addresses in lowercase in the database. Keep transaction and
@@ -68,14 +75,26 @@ payment identifiers as `0x`-prefixed 32-byte hex. SQLite drops timezone
 metadata, so API schemas must continue marking stored datetimes as UTC. Commit
 database state before broadcasting it.
 
+The live payment path must fail closed when intent is absent, expired, replayed,
+or inconsistent with the deposit's payment ID, parties, amount, token, or
+`metadataHash`. Preserve the canonical JSON field order shared by
+`PaymentProcessor._intent_payload` and `frontend/src/wallet.ts`; changing it is
+a protocol change and requires cross-boundary tests.
+
+Risk explanations are persisted policy output, not presentation estimates.
+Keep each signal's name, contribution, weight, and bounded evidence in
+`risk_signals`, and bump `policy_version` when scoring semantics change.
+
 ### Frontend (`frontend/`)
 
 `src/api.ts` owns HTTP/WebSocket transport and reconnect behavior.
 `src/App.tsx` owns the landing, payment, dashboard, and agent-repository routes,
 dashboard state, payment replacement by `payment_id`, agent labels, and risk
 details. `src/wallet.ts` owns browser-wallet connection, Sepolia validation,
-USDC approval, and escrow deposits. `src/types.ts` mirrors backend response
-schemas. When an API field changes, update all affected boundaries together.
+intent signing and registration, USDC approval, and escrow deposits.
+`src/types.ts` mirrors backend response schemas. When an API field changes,
+update all affected boundaries together. Never convert token base-unit strings
+through JavaScript `Number`; format and compare them with `BigInt`.
 
 The dashboard must remain usable with an empty payment list, during API/WebSocket
 failure, and on mobile widths. Do not add wallet requirements to simulation
@@ -101,7 +120,9 @@ cd frontend && npm run lint && npm run build
 
 Contract timing, authorization, replay, refund, and token-balance behavior need
 tests. Fraud-policy changes need tests for verified, unknown/watchlisted, amount,
-and velocity paths as applicable. API changes need request/response coverage.
+and velocity paths as applicable. Intent changes need signature, canonical-hash,
+expiry, replay, and deposit-binding coverage. API changes need request/response
+coverage.
 
 ## Configuration and security
 
@@ -116,6 +137,10 @@ and velocity paths as applicable. API changes need request/response coverage.
 - That deployment predates the source-level `ParadimeEscrow` rename. Its ABI
   and behavior remain compatible, but do not describe it as source-verified
   under the Paradime name unless a renamed deployment is created and verified.
+- `npm run deploy:sepolia` uses the production build profile and
+  `npm run verify:sepolia -- ADDRESS TOKEN ARBITRATOR` performs source
+  verification. Deployment is an explicit external operation: do not run it or
+  update encrypted configuration without user approval and a verification path.
 - The encrypted workstation configuration is `secrets/sepolia.env`. Do not
   replace it with a plaintext environment file.
 - Sepolia mode must validate chain ID `11155111` and deployed bytecode before
@@ -128,7 +153,8 @@ and velocity paths as applicable. API changes need request/response coverage.
 ## Known prototype limits
 
 The service uses SQLite, an in-process WebSocket manager, one polling process,
-one arbitration signer, and a single immutable stablecoin per contract. There
-are no schema migrations, durable work queue, multisig/HSM integration, or
-formal contract audit. Preserve these limitations in documentation unless a
-change actually removes them.
+one arbitration signer, and a single immutable stablecoin per contract. Startup
+contains narrow additive SQLite upgrades, but there is no general migration
+framework, durable work queue, multisig/HSM integration, or formal contract
+audit. Preserve these limitations in documentation unless a change actually
+removes them.

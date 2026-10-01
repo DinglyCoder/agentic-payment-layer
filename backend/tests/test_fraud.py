@@ -65,6 +65,15 @@ async def test_verified_micropayment_is_low_risk():
     assert result.score == 0
     assert result.decision == "execute"
     assert result.reasons == ["Verified counterparties and normal payment behavior"]
+    assert result.policy_version
+    assert {signal["name"] for signal in result.signals} == {
+        "sender_identity",
+        "receiver_identity",
+        "amount",
+        "velocity",
+        "party_separation",
+        "llm_review",
+    }
     await engine.dispose()
 
 

@@ -1,4 +1,4 @@
-import type { Agent, DemoPaymentInput, Health, Payment, Stats } from "./types";
+import type { Agent, DemoPaymentInput, Health, IntentEnvelopeInput, Payment, Stats } from "./types";
 
 export const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
 
@@ -23,6 +23,17 @@ export const api = {
       throw new Error(body?.detail ?? `Payment simulation failed (${response.status})`);
     }
     return response.json() as Promise<Payment>;
+  },
+  async registerIntent(input: IntentEnvelopeInput): Promise<void> {
+    const response = await fetch(`${API_URL}/api/intents`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    });
+    if (!response.ok) {
+      const body = (await response.json().catch(() => null)) as { detail?: string } | null;
+      throw new Error(body?.detail ?? `Intent registration failed (${response.status})`);
+    }
   },
 };
 

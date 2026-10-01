@@ -17,6 +17,8 @@ class RiskAssessment(BaseModel):
     level: RiskLevel
     decision: str
     reasons: list[str]
+    signals: list[dict]
+    policy_version: str = "2026-10-01"
     llm_score: int | None = None
 
 
@@ -45,31 +47,80 @@ class FraudEngine:
     async def score(self, payment: Payment, session: AsyncSession) -> RiskAssessment:
         rule_score = 0
         reasons: list[str] = []
+        signals: list[dict] = []
 
         sender = await session.get(AgentIdentity, payment.sender.lower())
         receiver = await session.get(AgentIdentity, payment.receiver.lower())
-        rule_score += self._registry_risk("Sender", sender, reasons)
-        rule_score += self._registry_risk("Receiver", receiver, reasons)
+        for party, identity in (("Sender", sender), ("Receiver", receiver)):
+            contribution = self._registry_risk(party, identity, reasons)
+            rule_score += contribution
+            signals.append(
+                {
+                    "name": f"{party.lower()}_identity",
+                    "contribution": contribution,
+                    "weight": 70,
+                    "evidence": {
+                        "status": identity.status if identity else "unknown",
+                        "trust_score": identity.trust_score if identity else None,
+                    },
+                }
+            )
 
         amount = int(payment.amount_units)
         if amount >= self.settings.high_amount_units:
-            rule_score += 35
+            amount_contribution = 35
             reasons.append("Amount is above the high-value agent payment threshold")
         elif amount >= self.settings.medium_amount_units:
-            rule_score += 15
+            amount_contribution = 15
             reasons.append("Amount is above the normal micropayment range")
+
+        else:
+            amount_contribution = 0
+        rule_score += amount_contribution
+        signals.append(
+            {
+                "name": "amount",
+                "contribution": amount_contribution,
+                "weight": 35,
+                "evidence": {"amount_units": payment.amount_units},
+            }
+        )
 
         velocity = await self._velocity(payment, session)
         if velocity.count >= self.settings.velocity_high_count:
-            rule_score += 40
+            velocity_contribution = 40
             reasons.append(f"High sender velocity: {velocity.count} recent payments")
         elif velocity.count >= self.settings.velocity_medium_count:
-            rule_score += 20
+            velocity_contribution = 20
             reasons.append(f"Elevated sender velocity: {velocity.count} recent payments")
 
-        if payment.sender.lower() == payment.receiver.lower():
+        else:
+            velocity_contribution = 0
+        rule_score += velocity_contribution
+        signals.append(
+            {
+                "name": "velocity",
+                "contribution": velocity_contribution,
+                "weight": 40,
+                "evidence": {
+                    "recent_count": velocity.count,
+                    "recent_units": str(velocity.total_units),
+                },
+            }
+        )
+
+        same_party = payment.sender.lower() == payment.receiver.lower()
+        if same_party:
             rule_score += 80
             reasons.append("Sender and receiver are identical")
+        signals.append(
+            {
+                "name": "party_separation",
+                "contribution": 80 if same_party else 0,
+                "weight": 80,
+                "evidence": {"same_wallet": same_party},
+            }
+        )
 
         rule_score = min(rule_score, 100)
         llm = await self._score_with_claude(payment, sender, receiver, velocity, rule_score)
@@ -79,6 +130,16 @@ class FraudEngine:
             final_score = max(rule_score, round(rule_score * 0.65 + llm.score * 0.35))
             if llm.score >= 30:
                 reasons.append(f"Claude review: {llm.reason}")
+        signals.append(
+            {
+                "name": "llm_review",
+                "contribution": max(0, final_score - rule_score),
+                "weight": 35,
+                "evidence": (
+                    {"score": llm.score, "reason": llm.reason} if llm else {"available": False}
+                ),
+            }
+        )
 
         if not reasons:
             reasons.append("Verified counterparties and normal payment behavior")
@@ -95,6 +156,7 @@ class FraudEngine:
             level=level,
             decision="recall" if final_score >= self.settings.recall_threshold else "execute",
             reasons=reasons,
+            signals=signals,
             llm_score=llm.score if llm else None,
         )
 

@@ -7,7 +7,8 @@
     "build": "hardhat compile",
     "test": "hardhat test",
     "check": "hardhat compile && tsc --noEmit",
-    "deploy:sepolia": "hardhat run scripts/deploy.ts --network sepolia"
+    "deploy:sepolia": "hardhat run scripts/deploy.ts --build-profile production --network sepolia",
+    "verify:sepolia": "hardhat verify --network sepolia"
   },
   "devDependencies": {
     "@nomicfoundation/hardhat-toolbox-mocha-ethers": "^3.0.7",

@@ -11,6 +11,8 @@ from .schemas import (
     AgentRead,
     DemoPaymentCreate,
     HealthRead,
+    IntentEnvelopeCreate,
+    IntentEnvelopeRead,
     PaymentRead,
     StatsRead,
 )
@@ -77,3 +79,13 @@ async def create_demo_payment(payload: DemoPaymentCreate, request: Request) -> P
     if not get_settings().simulation_mode:
         raise HTTPException(status_code=403, detail="demo payments are disabled in Sepolia mode")
     return await request.app.state.processor.create_demo(payload)
+
+
+@router.post("/intents", response_model=IntentEnvelopeRead, status_code=status.HTTP_201_CREATED)
+async def register_intent(payload: IntentEnvelopeCreate, request: Request):
+    if get_settings().simulation_mode:
+        raise HTTPException(status_code=403, detail="signed intents are only used in Sepolia mode")
+    try:
+        return await request.app.state.processor.register_intent(payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc

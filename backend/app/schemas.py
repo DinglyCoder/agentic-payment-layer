@@ -4,6 +4,7 @@ from decimal import Decimal
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 ADDRESS_PATTERN = r"^0x[a-fA-F0-9]{40}$"
+HASH_PATTERN = r"^0x[a-fA-F0-9]{64}$"
 
 
 class DemoPaymentCreate(BaseModel):
@@ -40,9 +41,13 @@ class PaymentRead(BaseModel):
     risk_score: int | None
     risk_level: str | None
     risk_reasons: list[str]
+    risk_signals: list[dict]
+    policy_version: str | None
     llm_score: int | None
     source: str
     decision_latency_ms: int | None
+    resolution_attempts: int
+    resolution_error: str | None
 
     @field_validator("deposited_at", "recall_deadline", mode="before")
     @classmethod
@@ -77,3 +82,24 @@ class HealthRead(BaseModel):
     llm_enabled: bool
     stablecoin_symbol: str
     stablecoin_decimals: int
+
+
+class IntentEnvelopeCreate(BaseModel):
+    payment_id: str = Field(pattern=HASH_PATTERN)
+    sender: str = Field(pattern=ADDRESS_PATTERN)
+    receiver: str = Field(pattern=ADDRESS_PATTERN)
+    amount_units: str = Field(pattern=r"^[1-9][0-9]*$", max_length=78)
+    token: str = Field(pattern=ADDRESS_PATTERN)
+    purpose: str = Field(min_length=3, max_length=240)
+    service_or_sku: str = Field(min_length=1, max_length=120)
+    mandate: str = Field(min_length=1, max_length=240)
+    expires_at: datetime
+    nonce: str = Field(pattern=HASH_PATTERN)
+    metadata_hash: str = Field(pattern=HASH_PATTERN)
+    signature: str = Field(pattern=r"^0x[a-fA-F0-9]{130}$")
+
+
+class IntentEnvelopeRead(IntentEnvelopeCreate):
+    model_config = ConfigDict(from_attributes=True)
+
+    verified: bool
