@@ -59,7 +59,7 @@ Prerequisites: Node.js 22+, npm, and [`uv`](https://docs.astral.sh/uv/).
 `make demo` remains available as an equivalent command.
 
 This installs missing frontend dependencies from the lockfile, starts the API
-and frontend, and opens the interactive playground at
+and frontend, and opens the payment workspace at
 <http://127.0.0.1:5173/demo>. Python dependencies are managed by `uv`. The launcher
 loads `secrets/sepolia.env` through `with-secrets`, validates the existing escrow,
 and enables the funded demo payer. This requires the workstation's SOPS access
@@ -73,7 +73,7 @@ Use **Use browser wallet** for MetaMask or another EIP-1193 wallet; the payment
 console supports direct and guided wallet payments. For automated demonstrations,
 the explicitly enabled server-managed payer submits the transactions.
 
-The playground includes:
+The workspace includes:
 
 - A guided tour of autonomous compute purchase, watchlist recall, budget
   rejection, and signed-mandate replay rejection.
@@ -107,7 +107,7 @@ In another terminal, use the real CLI:
 For a non-default API port, add `--api-url http://127.0.0.1:PORT`, using the URL
 printed by the launcher. The browser terminal executes only these bounded demo
 commands; it has no operating-system shell access. **Reset view** clears the
-playground's presentation history. **Ctrl+C** stops both servers. Sepolia records
+workspace's presentation history. **Ctrl+C** stops both servers. Sepolia records
 persist in the ignored `backend/paradime-demo.db` across restarts. Commands
 publish transaction links while pending; use `./paradime status OPERATION_ID`
 to resume tracking without sending another payment.
@@ -153,10 +153,10 @@ Open <http://localhost:5173>. The API is documented at
 lets the **Simulate payment** form exercise the full scoring and WebSocket UI
 without a wallet or API key.
 
-The header environment switch selects Simulation or Testnet across the payment
-console, dashboard, and agent links. Testnet remains disabled until the backend
+The header environment switch selects Simulation or Sepolia across the payment
+console, dashboard, and agent links. Sepolia remains disabled until the backend
 has complete Sepolia settings and either `TESTNET_ENABLED=true` or
-`SIMULATION_MODE=false`. Simulation remains available after Testnet is enabled,
+`SIMULATION_MODE=false`. Simulation remains available after Sepolia is enabled,
 so changing environments does not require restarting the frontend.
 
 The API also runs a complete credential-free autonomous purchase. It creates a
@@ -208,7 +208,7 @@ from the [Circle testnet faucet](https://faucet.circle.com/).
 2. Configure the backend with the deployed address and the same arbitrator
    wallet. Set `TESTNET_ENABLED=true` to keep Simulation as the default while
    enabling the UI switch, or retain `SIMULATION_MODE=false` to default the UI
-   to Testnet:
+   to Sepolia:
 
    ```bash
    cd backend

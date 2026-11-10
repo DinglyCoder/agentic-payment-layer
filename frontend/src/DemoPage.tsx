@@ -20,6 +20,7 @@ import {
   Wallet,
 } from "lucide-react";
 import { api, followDemoOperation } from "./api";
+import { CopyButton } from "./components";
 import type {
   DemoCommandResult,
   DemoMode,
@@ -34,8 +35,8 @@ import "./demo.css";
 const SCENARIOS = [
   {
     id: "purchase",
-    title: "An agent buys compute",
-    tag: "Delivered",
+    title: "Purchase compute",
+    tag: "Settlement",
     icon: Bot,
     description:
       "Sign a budget once. Discover a paid tool, satisfy its x402 challenge, and receive work.",
@@ -43,8 +44,8 @@ const SCENARIOS = [
   },
   {
     id: "watchlist",
-    title: "A risky payment is recalled",
-    tag: "Recalled",
+    title: "Recall a risky payment",
+    tag: "Refund",
     icon: ShieldX,
     description:
       "A payment targets a watchlisted recipient. Inspect the risk decision and refund transaction.",
@@ -52,8 +53,8 @@ const SCENARIOS = [
   },
   {
     id: "budget",
-    title: "An agent hits its limit",
-    tag: "Blocked",
+    title: "Enforce a spending limit",
+    tag: "Budget policy",
     icon: Wallet,
     description:
       "A 0.50 USDC mandate cannot authorize a 1 USDC offer. Stop it before funds move.",
@@ -61,8 +62,8 @@ const SCENARIOS = [
   },
   {
     id: "replay",
-    title: "Old authority is rejected",
-    tag: "Blocked",
+    title: "Reject a replay",
+    tag: "Authorization",
     icon: Fingerprint,
     description:
       "Submit the same signed mandate twice and watch replay protection reject the duplicate.",
@@ -120,13 +121,17 @@ function ChainEvidence({
         Ethereum Sepolia evidence
       </strong>
       {Object.entries(links).map(([kind, url]) => (
-        <a key={kind} href={url} target="_blank" rel="noreferrer">
-          <span>
-            {kind === "resolution" ? "Settlement / refund" : kind} transaction
-          </span>
-          <code>{url.split("/").at(-1)}</code>
-          <ExternalLink size={14} />
-        </a>
+        <div className="demo-evidence-row" key={kind}>
+          <a href={url} target="_blank" rel="noreferrer">
+            <span>{kind === "resolution" ? "Settlement / refund" : kind}</span>
+            <code title={url.split("/").at(-1)}>{url.split("/").at(-1)}</code>
+            <ExternalLink size={14} />
+          </a>
+          <CopyButton
+            value={url.split("/").at(-1) ?? url}
+            label={`Copy ${kind} transaction hash`}
+          />
+        </div>
       ))}
       {!Object.keys(links).length && (
         <p>
@@ -169,7 +174,7 @@ export default function DemoPage({
   >("journey");
   const [budget, setBudget] = useState("3");
   const [prompt, setPrompt] = useState(
-    "Trusted compute delivers a safe and useful result",
+    "Analyze this customer feedback: clear documentation and reliable service.",
   );
   const [resetKey, setResetKey] = useState(0);
   const running = useRef(false);
@@ -284,7 +289,7 @@ export default function DemoPage({
   }
 
   return (
-    <main className="demo-page">
+    <main id="main-content" className="demo-page">
       <div className="demo-notice">
         <FlaskConical size={15} />
         <span>
@@ -292,28 +297,19 @@ export default function DemoPage({
             {simulation ? "Offline simulation." : "Ethereum Sepolia demo."}
           </strong>{" "}
           {simulation
-            ? "Explicitly simulated funds. Switch to Testnet for on-chain purchases."
+            ? "Explicitly simulated funds. Switch to Sepolia for on-chain purchases."
             : "Actual test USDC, wallet signatures, and public transaction receipts. Test tokens have no monetary value."}
         </span>
       </div>
       <section className="demo-heading section-wrap">
         <div>
-          <p className="kicker">
-            <span /> The interactive playground
-          </p>
-          <h1>
-            Watch an agent pay.
-            <br />
-            <em>See every decision.</em>
-          </h1>
-          <p>
-            Explore the happy path. Try to break the rules. Inspect what
-            happened.
-          </p>
+          <p className="kicker">Autonomous payments</p>
+          <h1>Payment workspace</h1>
+          <p>Run a purchase. Test the controls. Inspect the transaction.</p>
         </div>
         <div className="demo-heading-actions">
           <button
-            className="button button-dark"
+            className="button button-outline"
             disabled={busy || !ready}
             onClick={() => {
               setTab("journey");
@@ -321,7 +317,7 @@ export default function DemoPage({
             }}
           >
             <Play size={15} />
-            Start guided tour
+            Run guided tour
           </button>
           <span>
             {simulation
@@ -335,19 +331,29 @@ export default function DemoPage({
           <div>
             <Wallet size={20} />
             <span>
-              <strong>Funded demo wallet</strong>
-              <small>
+              <strong>Managed testnet wallet</strong>
+              <small
+                className="demo-wallet-address"
+                title={status?.managed_wallet?.address ?? undefined}
+              >
                 {status?.managed_wallet?.address ??
                   "Waiting for the Sepolia payer…"}
               </small>
             </span>
+            {status?.managed_wallet?.address && (
+              <CopyButton
+                value={status.managed_wallet.address}
+                label="Copy wallet address"
+              />
+            )}
           </div>
           <div>
-            <small>Available test USDC</small>
+            <small>Available balance</small>
             <strong>
               {status?.managed_wallet?.balance_units
                 ? money(status.managed_wallet.balance_units)
-                : "—"}
+                : "—"}{" "}
+              <span>USDC</span>
             </strong>
           </div>
           {status?.contract_address && (
@@ -366,7 +372,7 @@ export default function DemoPage({
             onClick={openWallet}
           >
             <Wallet size={15} />
-            Use browser wallet
+            Connect your wallet
           </button>
           {status && !status.managed_wallet?.enabled && (
             <p>
@@ -383,8 +389,8 @@ export default function DemoPage({
       >
         {(
           [
-            ["journey", "Payment journeys", ShieldCheck],
-            ["terminal", "Developer terminal", Terminal],
+            ["journey", "Payments", ShieldCheck],
+            ["terminal", "Terminal", Terminal],
             ["protection", "Protection lab", FlaskConical],
           ] as const
         ).map(([id, label, Icon]) => (
@@ -393,9 +399,29 @@ export default function DemoPage({
             role="tab"
             aria-controls={`demo-panel-${id}`}
             aria-selected={tab === id}
+            tabIndex={tab === id ? 0 : -1}
             className={tab === id ? "active" : ""}
             key={id}
             onClick={() => setTab(id)}
+            onKeyDown={(event) => {
+              const tabs = ["journey", "terminal", "protection"] as const;
+              const index = tabs.indexOf(tab);
+              const next =
+                event.key === "ArrowRight"
+                  ? tabs[(index + 1) % tabs.length]
+                  : event.key === "ArrowLeft"
+                    ? tabs[(index + tabs.length - 1) % tabs.length]
+                    : event.key === "Home"
+                      ? tabs[0]
+                      : event.key === "End"
+                        ? tabs[2]
+                        : null;
+              if (next) {
+                event.preventDefault();
+                setTab(next);
+                document.getElementById(`demo-tab-${next}`)?.focus();
+              }
+            }}
           >
             <Icon size={17} />
             {label}
@@ -404,7 +430,7 @@ export default function DemoPage({
         ))}
         <button className="demo-reset" onClick={reset} disabled={busy}>
           <RotateCcw size={14} />
-          Reset view
+          <span>Reset view</span>
         </button>
       </div>
       <section
@@ -459,6 +485,7 @@ export default function DemoPage({
                   <button
                     key={item.id}
                     className={`demo-scenario ${scenario === item.id ? "active" : ""}`}
+                    aria-pressed={scenario === item.id}
                     disabled={busy}
                     onClick={() => {
                       setScenario(item.id);
@@ -473,7 +500,7 @@ export default function DemoPage({
                     </span>
                     <span>
                       <small>
-                        0{index + 1} / {item.tag}
+                        0{index + 1} · {item.tag}
                       </small>
                       <strong>{item.title}</strong>
                     </span>
@@ -500,7 +527,7 @@ export default function DemoPage({
               <div className="demo-stage">
                 <div className="demo-stage-head">
                   <span className="demo-eyebrow">
-                    {result ? "Inspectable result" : "Your next experiment"}
+                    {result ? "Payment record" : "Scenario preview"}
                   </span>
                   <span className="demo-sim-badge">
                     <span />
@@ -570,12 +597,27 @@ export default function DemoPage({
                 )}
                 {operation && !result && (
                   <div className="demo-detail-body">
-                    <p role="status">
-                      <strong>{operation.phase}</strong>
-                    </p>
-                    <p>
-                      Operation: <code>{operation.operation_id}</code>
-                    </p>
+                    <div className="demo-operation-progress" role="status">
+                      {busy && <span className="spinner" />}
+                      <span>
+                        <small>
+                          {busy
+                            ? "Payment in progress"
+                            : "Operation interrupted"}
+                        </small>
+                        <strong>{operation.phase}</strong>
+                      </span>
+                    </div>
+                    <div className="demo-operation-identity">
+                      <span>Operation</span>
+                      <code title={operation.operation_id}>
+                        {operation.operation_id}
+                      </code>
+                      <CopyButton
+                        value={operation.operation_id}
+                        label="Copy operation ID"
+                      />
+                    </div>
                     <ChainEvidence
                       links={operation.explorer_links}
                       simulation={simulation}
@@ -758,7 +800,13 @@ export default function DemoPage({
                   </>
                 )}
                 <div className="demo-stage-footer">
-                  <code>{chosen.command}</code>
+                  <div className="demo-command">
+                    <code>{chosen.command}</code>
+                    <CopyButton
+                      value={chosen.command}
+                      label="Copy scenario command"
+                    />
+                  </div>
                   <button
                     className="button button-dark"
                     disabled={
@@ -819,9 +867,7 @@ export default function DemoPage({
       </section>
       {previous.length > 0 && !simulation && (
         <section className="section-wrap demo-saved-operations">
-          <p className="demo-eyebrow">
-            Recorded Sepolia activity · persists across restarts
-          </p>
+          <p className="demo-eyebrow">Recent operations</p>
           {previous.map((item) => (
             <button
               disabled={busy}
@@ -1075,15 +1121,12 @@ function DeveloperTerminal({
     <div className="demo-terminal-layout">
       <div className="demo-terminal">
         <div className="demo-terminal-bar">
-          <span>
-            <i />
-            <i />
-            <i />
-          </span>
           <strong>
-            paradime / {mode === "sepolia" ? "Sepolia" : "offline simulation"}
+            <Terminal size={15} /> paradime
           </strong>
-          <small>Interactive CLI</small>
+          <small>
+            {mode === "sepolia" ? "Sepolia session" : "Offline simulation"}
+          </small>
         </div>
         <div
           className="demo-terminal-output"
@@ -1093,7 +1136,7 @@ function DeveloperTerminal({
           aria-live="polite"
         >
           <div className="demo-terminal-welcome">
-            <pre>{"PARADIME\nAgent payments, with guardrails."}</pre>
+            <pre>Paradime CLI</pre>
             <p>
               The same commands work in your local terminal with{" "}
               <code>./paradime</code>.
@@ -1126,7 +1169,9 @@ function DeveloperTerminal({
           ))}
           {busy && (
             <p className="demo-terminal-pending">
-              Running signature and policy checks…
+              {mode === "sepolia"
+                ? "Waiting for the payment operation…"
+                : "Running policy checks…"}
             </p>
           )}
         </div>
@@ -1168,13 +1213,9 @@ function DeveloperTerminal({
       </div>
       <aside className="demo-terminal-guide">
         <p className="demo-eyebrow">Try a command</p>
-        <h2>
-          No installation.
-          <br />
-          Same interface.
-        </h2>
+        <h2>Command reference</h2>
         <p>
-          Run a purchase, trigger a recall, or inspect the latest receipt.
+          Run a purchase, trigger a recall, or inspect the latest receipt.{" "}
           {mode === "sepolia"
             ? "Commands submit actual test-USDC payments. Transaction links appear as they are submitted and resolved."
             : "Explicit offline simulation creates no blockchain transactions."}

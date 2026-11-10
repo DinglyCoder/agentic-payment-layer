@@ -83,6 +83,29 @@ need a recursive entry in this file.
 
 ## Functional commit history
 
+### Working tree — Payment console UI polish (2026-11-09)
+
+- Reworked all five screens around compact navigation, neutral surfaces, system
+  fonts, readable forms and tables, and restrained status colors. The overview
+  shows an actual record from the selected environment instead of a fabricated
+  payment illustration.
+- Added working ledger search, status filtering, filtered JSON export, and
+  keyboard-accessible payment selection. The risk panel follows the visible
+  selection and displays pending assessments without inventing a zero score.
+- Added reusable clipboard controls for commands, wallet addresses, operation
+  IDs, and transaction hashes. Agent payment actions now carry the selected
+  recipient into checkout, including while backend configuration loads.
+- Preserved real Sepolia payment paths, the shared CLI dispatcher, persistent
+  receipts, and visibly labeled offline simulation and protection concepts.
+- Verification: frontend ESLint and production build passed. Installed Chrome
+  exercised search, filters, export, copy feedback, scenario execution, policy
+  and x402 details, receipt downloads, terminal commands, and keyboard tabs in
+  an isolated offline environment. All five routes passed layout checks at
+  320, 390, 768, and 1024 pixels without document overflow or JS exceptions.
+  A separate read-only check against the running Sepolia service verified real
+  wallet data, existing deposit/settlement links, mobile receipt layouts, and
+  browser-wallet entry. This UI pass submitted no blockchain payments.
+
 ### Working tree — Real Sepolia demo and transaction evidence (2026-11-09)
 
 - Added a one-command launcher with encrypted Sepolia configuration, persistent
