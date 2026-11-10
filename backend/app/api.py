@@ -1,4 +1,4 @@
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import desc, select
@@ -17,6 +17,9 @@ from .schemas import (
     HealthRead,
     IntentEnvelopeCreate,
     IntentEnvelopeRead,
+    ManagedDemoPaymentCreate,
+    ManagedDemoPaymentRead,
+    ManagedDemoWalletRead,
     PaymentRead,
     SpendingMandateCreate,
     SpendingMandateRead,
@@ -33,19 +36,27 @@ async def health() -> HealthRead:
     return HealthRead(
         status="ok",
         mode="simulation" if settings.simulation_mode else "sepolia",
+        testnet_available=settings.chain_enabled,
         chain_id=11155111,
-        contract_address=settings.escrow_contract_address,
-        payment_token_address=settings.payment_token_address,
-        llm_enabled=settings.anthropic_api_key is not None,
+        contract_address=settings.escrow_contract_address if settings.chain_enabled else None,
+        payment_token_address=settings.payment_token_address if settings.chain_enabled else None,
+        llm_enabled=bool(settings.anthropic_api_key),
         stablecoin_symbol=settings.stablecoin_symbol,
         stablecoin_decimals=settings.stablecoin_decimals,
     )
 
 
 @router.get("/payments", response_model=list[PaymentRead])
-async def list_payments(session: SessionDep, limit: int = 50) -> list[Payment]:
+async def list_payments(
+    session: SessionDep,
+    limit: int = 50,
+    mode: Literal["simulation", "sepolia"] | None = None,
+) -> list[Payment]:
     limit = max(1, min(limit, 200))
-    query = select(Payment).order_by(desc(Payment.deposited_at)).limit(limit)
+    query = select(Payment)
+    if mode:
+        query = query.where(Payment.source == mode)
+    query = query.order_by(desc(Payment.deposited_at)).limit(limit)
     return list((await session.scalars(query)).all())
 
 
@@ -64,8 +75,14 @@ async def list_agents(session: SessionDep) -> list[AgentIdentity]:
 
 
 @router.get("/stats", response_model=StatsRead)
-async def stats(session: SessionDep) -> StatsRead:
-    payments = list((await session.scalars(select(Payment))).all())
+async def stats(
+    session: SessionDep,
+    mode: Literal["simulation", "sepolia"] | None = None,
+) -> StatsRead:
+    query = select(Payment)
+    if mode:
+        query = query.where(Payment.source == mode)
+    payments = list((await session.scalars(query)).all())
     total = len(payments)
     executed = sum(payment.status == PaymentStatus.EXECUTED for payment in payments)
     recalled = sum(payment.status == PaymentStatus.RECALLED for payment in payments)
@@ -82,19 +99,45 @@ async def stats(session: SessionDep) -> StatsRead:
 
 @router.post("/demo/payments", response_model=PaymentRead, status_code=status.HTTP_201_CREATED)
 async def create_demo_payment(payload: DemoPaymentCreate, request: Request) -> Payment:
-    if not get_settings().simulation_mode:
-        raise HTTPException(status_code=403, detail="demo payments are disabled in Sepolia mode")
     return await request.app.state.processor.create_demo(payload)
 
 
 @router.post("/intents", response_model=IntentEnvelopeRead, status_code=status.HTTP_201_CREATED)
 async def register_intent(payload: IntentEnvelopeCreate, request: Request):
-    if get_settings().simulation_mode:
-        raise HTTPException(status_code=403, detail="signed intents are only used in Sepolia mode")
+    if not get_settings().chain_enabled:
+        raise HTTPException(
+            status_code=403, detail="signed intents require configured Sepolia mode"
+        )
     try:
         return await request.app.state.processor.register_intent(payload)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.get("/testnet/demo-wallet", response_model=ManagedDemoWalletRead)
+async def managed_demo_wallet(request: Request) -> ManagedDemoWalletRead:
+    try:
+        return await request.app.state.managed_wallet.status()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@router.post(
+    "/testnet/demo-wallet/payments",
+    response_model=ManagedDemoPaymentRead,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_managed_demo_payment(
+    payload: ManagedDemoPaymentCreate, request: Request
+) -> ManagedDemoPaymentRead:
+    try:
+        return await request.app.state.managed_wallet.pay(payload)
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
 @router.get("/autonomous/buyer", response_model=AutonomousBuyerRead)

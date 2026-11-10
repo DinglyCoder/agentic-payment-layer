@@ -1,5 +1,49 @@
 # Architecture and trust boundaries
 
+## Interactive demo boundary
+
+`./demo` starts FastAPI and Vite on loopback, loads the SOPS-encrypted Sepolia
+configuration through `with-secrets`, and enables actual test-USDC payments.
+The frontend process receives only an allowlist of ordinary runtime variables;
+decrypted credentials remain with backend consumers. The launcher owns both
+server process groups. Sepolia records persist in `backend/paradime-demo.db`.
+
+`app/demo.py` provides inspectable purchase, recall, budget, and replay scenarios.
+Its Sepolia buyer uses the explicitly enabled managed wallet, sharing serialized
+nonce handling and funding limits with manual demo payments. It signs authority
+and intent, deposits the configured ERC-20, and releases seller output after
+mined escrow execution. Without `SELLER_ADDRESS`, the arbitration wallet receives
+seller payments; this does not establish independent seller operation.
+
+`DemoOperation` persists requests before submission. Reusing a request ID returns
+the same operation. Submission callbacks record actual approval and deposit
+hashes before waiting for receipts, and polling exposes progress to both clients.
+Interrupted operations retain evidence and are never automatically resubmitted;
+this is not a general durable job queue. The listener reconciles chain settlement.
+Explicit resume can recover seller output from an already-executed payment;
+that path never submits another deposit.
+
+The escrow's 30-second window requires the launcher to observe freshly mined
+logs (`CHAIN_CONFIRMATIONS=0`) for prompt recall. This is low-latency testnet
+processing, not finalized-block protection. External LLM calls are disabled in
+the launcher so screening remains deterministic.
+
+The browser terminal and `./paradime` both call `POST /api/demo/commands`.
+Commands are tokenized and matched to a bounded dispatcher, never executed as
+shell commands. Sepolia is their default; offline simulation requires explicit
+selection. Receipt and payment queries filter by environment. Budget and replay
+rejections send no transaction and have no fabricated explorer proof. Private
+keys are never returned to clients.
+
+`./demo --simulation` retains a credential-free alternative with a temporary
+database. Only its separate simulation actors discard live signer, RPC, and LLM
+settings. Synthetic payment identifiers never receive Etherscan links.
+
+The `/demo` protection lab is a client-side concept simulation, separate from
+payment persistence and chain operations. Its fixed illustrative premium and
+toy liquidation boundary are not an options-pricing or underwriting model.
+Mock reserves and payouts do not represent deployed financial capabilities.
+
 ## Resolution state machine
 
 ```text

@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+set -euo pipefail
+paradime_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+cd "$paradime_root"
+exec uv run --frozen --project backend python scripts/demo.py "$@"

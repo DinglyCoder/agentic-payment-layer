@@ -112,6 +112,22 @@ class ChainCursor(Base):
     )
 
 
+class DemoOperation(Base):
+    __tablename__ = "demo_operations"
+
+    operation_id: Mapped[str] = mapped_column(String(66), primary_key=True)
+    mode: Mapped[str] = mapped_column(String(16))
+    scenario: Mapped[str] = mapped_column(String(16))
+    status: Mapped[str] = mapped_column(String(16), default="queued")
+    phase: Mapped[str] = mapped_column(String(120), default="Queued")
+    request: Mapped[dict] = mapped_column(JSON)
+    result: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    error: Mapped[str | None] = mapped_column(String(240), nullable=True)
+    approval_tx_hash: Mapped[str | None] = mapped_column(String(66), nullable=True)
+    deposit_tx_hash: Mapped[str | None] = mapped_column(String(66), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
 class SpendingMandate(Base):
     __tablename__ = "spending_mandates"
 

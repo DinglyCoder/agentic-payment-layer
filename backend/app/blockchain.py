@@ -36,6 +36,12 @@ class ResolutionEvent:
     block_number: int
 
 
+@dataclass(frozen=True, slots=True)
+class DepositSubmission:
+    deposit_tx_hash: str
+    approval_tx_hash: str | None
+
+
 class EscrowChain:
     """Async Sepolia event source and single-key arbitrator transaction signer."""
 
@@ -217,7 +223,9 @@ class EscrowChain:
         receiver: str,
         amount_units: int,
         metadata_hash: str,
-    ) -> str:
+        *,
+        on_submitted: Callable[[str, str], Awaitable[None]] | None = None,
+    ) -> DepositSubmission:
         if not self.enabled:
             raise RuntimeError("chain deposit requested in simulation mode")
         assert self.w3 is not None and self.contract is not None
@@ -246,6 +254,7 @@ class EscrowChain:
                 },
             ],
         )
+        approval_tx_hash = None
         async with self._buyer_nonce_lock:
             allowance = await token.functions.allowance(
                 account.address, self.contract.address
@@ -254,9 +263,12 @@ class EscrowChain:
                 approval = await self._send_account_transaction(
                     account,
                     token.functions.approve(self.contract.address, amount_units),
+                    stage="approval",
+                    on_submitted=on_submitted,
                 )
                 if approval["status"] != 1:
                     raise RuntimeError("autonomous token approval reverted")
+                approval_tx_hash = HexBytes(approval["transactionHash"]).to_0x_hex()
             receipt = await self._send_account_transaction(
                 account,
                 self.contract.functions.deposit(
@@ -265,12 +277,42 @@ class EscrowChain:
                     amount_units,
                     HexBytes(metadata_hash),
                 ),
+                stage="deposit",
+                on_submitted=on_submitted,
             )
         if receipt["status"] != 1:
             raise RuntimeError("autonomous escrow deposit reverted")
-        return HexBytes(receipt["transactionHash"]).to_0x_hex()
+        return DepositSubmission(
+            deposit_tx_hash=HexBytes(receipt["transactionHash"]).to_0x_hex(),
+            approval_tx_hash=approval_tx_hash,
+        )
 
-    async def _send_account_transaction(self, account: LocalAccount, contract_call):
+    async def token_balance(self, address: str) -> int:
+        if not self.enabled:
+            raise RuntimeError("token balance requested in simulation mode")
+        assert self.w3 is not None
+        token = self.w3.eth.contract(
+            address=Web3.to_checksum_address(self.settings.payment_token_address),
+            abi=[
+                {
+                    "inputs": [{"internalType": "address", "name": "owner", "type": "address"}],
+                    "name": "balanceOf",
+                    "outputs": [{"internalType": "uint256", "name": "", "type": "uint256"}],
+                    "stateMutability": "view",
+                    "type": "function",
+                }
+            ],
+        )
+        return int(await token.functions.balanceOf(Web3.to_checksum_address(address)).call())
+
+    async def _send_account_transaction(
+        self,
+        account: LocalAccount,
+        contract_call,
+        *,
+        stage: str,
+        on_submitted: Callable[[str, str], Awaitable[None]] | None = None,
+    ):
         assert self.w3 is not None
         nonce = await self.w3.eth.get_transaction_count(account.address, "pending")
         transaction = await contract_call.build_transaction(
@@ -278,6 +320,8 @@ class EscrowChain:
         )
         signed = account.sign_transaction(transaction)
         tx_hash = await self.w3.eth.send_raw_transaction(signed.raw_transaction)
+        if on_submitted:
+            await on_submitted(stage, tx_hash.to_0x_hex())
         return await self.w3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
 
     def stop(self) -> None:

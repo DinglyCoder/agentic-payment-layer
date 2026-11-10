@@ -8,7 +8,11 @@ def test_health_and_demo_payment_flow():
         health = client.get("/api/health")
         assert health.status_code == 200
         assert health.json()["mode"] == "simulation"
+        assert health.json()["testnet_available"] is False
         assert health.json()["payment_token_address"] is None
+        demo_wallet = client.get("/api/testnet/demo-wallet")
+        assert demo_wallet.status_code == 200
+        assert demo_wallet.json()["enabled"] is False
 
         response = client.post(
             "/api/demo/payments",
@@ -27,9 +31,12 @@ def test_health_and_demo_payment_flow():
 
         payments = client.get("/api/payments").json()
         assert len(payments) == 1
+        assert len(client.get("/api/payments?mode=simulation").json()) == 1
+        assert client.get("/api/payments?mode=sepolia").json() == []
         stats = client.get("/api/stats").json()
         assert stats["total_payments"] == 1
         assert stats["execution_rate"] == 100.0
+        assert client.get("/api/stats?mode=sepolia").json()["total_payments"] == 0
 
 
 def test_websocket_connects():

@@ -65,6 +65,7 @@ export interface Stats {
 export interface Health {
   status: string;
   mode: "simulation" | "sepolia";
+  testnet_available: boolean;
   chain_id: number;
   contract_address: string | null;
   payment_token_address: string | null;
@@ -78,4 +79,21 @@ export interface DemoPaymentInput {
   receiver: string;
   amount_usdc: string;
   description: string;
+}
+
+export interface ManagedDemoWallet {
+  enabled: boolean;
+  address: string | null;
+  balance_units: string | null;
+  max_amount_units: string;
+  remaining_session_budget_units: string;
+}
+
+export interface ManagedDemoPayment {
+  payment_id: string;
+  deposit_tx_hash: string;
+  approval_tx_hash: string | null;
+  sender: string;
+  receiver: string;
+  amount_units: string;
 }

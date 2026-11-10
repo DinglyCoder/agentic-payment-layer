@@ -48,6 +48,10 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
 .site-header nav button:hover, .site-header nav button.active { color: var(--ink); }
 .site-header nav button.active::after { right: 0; left: 0; }
 .header-actions { justify-self: end; display: flex; align-items: center; gap: 14px; }
+.environment-switch { display: flex; padding: 3px; background: #e9ede8; border: 1px solid #d9dfda; border-radius: 6px; }
+.environment-switch button { min-height: 27px; padding: 0 8px; color: #74807a; background: transparent; border: 0; border-radius: 4px; font-size: 9px; font-weight: 700; }
+.environment-switch button.active { color: white; background: var(--green); box-shadow: 0 2px 6px rgba(20,54,45,.16); }
+.environment-switch button:disabled { opacity: .42; cursor: not-allowed; }
 .live-state { display: inline-flex; align-items: center; gap: 6px; color: #828b87; font-size: 11px; }
 .live-state > span { width: 6px; height: 6px; border-radius: 50%; background: #aab1ae; }
 .live-state.connected > span { background: #3f8c6b; box-shadow: 0 0 0 4px rgba(63,140,107,.12); }
@@ -152,6 +156,12 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
 .mode-switch button svg { width: 15px; }
 .mode-switch button span { padding: 2px 5px; color: var(--green); background: #d9e8e1; border-radius: 99px; font-size: 7px; text-transform: uppercase; }
 .mode-switch button.active { color: var(--ink); background: white; box-shadow: 0 2px 8px rgba(21,43,35,.08); }
+.payer-switch { display: flex; align-items: center; justify-content: flex-end; gap: 6px; padding: 9px 18px; background: #f7f8f5; border-bottom: 1px solid #e4e8e3; }
+.payer-switch > span { margin-right: 4px; color: #77827c; font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; }
+.payer-switch button { display: flex; align-items: center; gap: 5px; min-height: 29px; padding: 0 9px; color: #66736d; background: white; border: 1px solid #dce2dd; border-radius: 5px; font-size: 8px; font-weight: 700; }
+.payer-switch button svg { width: 13px; }
+.payer-switch button.active { color: white; background: var(--green); border-color: var(--green); }
+.payer-switch button:disabled { opacity: .45; cursor: not-allowed; }
 .direct-form { display: grid; gap: 21px; padding: 34px 40px 30px; }
 .form-title { display: flex; align-items: center; justify-content: space-between; padding-bottom: 22px; border-bottom: 1px solid #e6e9e5; }
 .form-title h2, .payment-aside h2, .panel-title h2, .agent-card h2 { margin: 0; color: var(--ink); font: 700 19px "Manrope"; letter-spacing: -.5px; }
@@ -469,6 +479,7 @@ td:last-child svg { width: 12px; color: #9ba39f; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
 @media (max-width: 1000px) {
+  .live-state { display: none; }
   .hero { grid-template-columns: 1fr; gap: 75px; padding-top: 75px; }
   .hero-copy { max-width: 750px; }
   .hero-visual { width: min(620px, 90%); margin-inline: auto; }
@@ -493,6 +504,7 @@ td:last-child svg { width: 12px; color: #9ba39f; }
   .site-header nav button { min-height: 40px; text-align: left; }
   .site-header nav button::after { display: none; }
   .header-cta, .live-state { display: none; }
+  .environment-switch button { padding-inline: 7px; }
   .menu-button { display: block; }
   .hero { min-height: auto; padding-top: 60px; }
   .hero-copy h1 { font-size: 42px; letter-spacing: -2.3px; }
@@ -557,6 +569,7 @@ td:last-child svg { width: 12px; color: #9ba39f; }
   .volume-chart svg { height: 150px; }
   .table-wrap table { min-width: 680px; }
   .mode-switch button { font-size: 9px; }
+  .payer-switch { justify-content: center; padding-inline: 10px; }
   .form-title { align-items: flex-start; flex-direction: column; gap: 13px; }
   .chat-bubble { max-width: 82%; }
   .chat-payment-card { width: calc(100% - 20px); margin-left: 20px; }

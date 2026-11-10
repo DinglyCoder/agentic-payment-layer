@@ -11,7 +11,10 @@ from .autonomy import BuyerAgent, SellerComputeAgent, mcp_router
 from .blockchain import EscrowChain
 from .config import get_settings
 from .database import SessionLocal, close_database, init_database
+from .demo import DemoWorkspace
+from .demo import router as demo_router
 from .fraud import FraudEngine
+from .managed_wallet import ManagedDemoWallet
 from .seed import seed_database
 from .service import PaymentProcessor
 from .websocket import manager
@@ -32,10 +35,16 @@ async def lifespan(app: FastAPI):
     processor = PaymentProcessor(SessionLocal, fraud, chain, manager)
     seller = SellerComputeAgent(settings)
     buyer = BuyerAgent(settings, SessionLocal, processor, chain, seller)
+    managed_wallet = ManagedDemoWallet(settings, processor, chain)
     app.state.processor = processor
     app.state.seller = seller
     app.state.buyer = buyer
+    app.state.managed_wallet = managed_wallet
     app.state.sessions = SessionLocal
+    app.state.demo = DemoWorkspace(
+        settings, SessionLocal, manager, processor=processor, chain=chain, wallet=managed_wallet
+    )
+    await app.state.demo.recover()
     chain_task: asyncio.Task | None = None
 
     if chain.enabled:
@@ -57,6 +66,7 @@ async def lifespan(app: FastAPI):
 
     yield
 
+    await app.state.demo.close()
     chain.stop()
     if chain_task:
         chain_task.cancel()
@@ -80,6 +90,7 @@ app.add_middleware(
 )
 app.include_router(router)
 app.include_router(mcp_router)
+app.include_router(demo_router)
 
 
 @app.websocket("/ws/payments")

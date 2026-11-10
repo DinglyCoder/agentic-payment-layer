@@ -11,12 +11,18 @@ stablecoin payments on Ethereum Sepolia. It acts as the identity,
 fraud-detection, and arbitration layer. It is not audited or production payment
 infrastructure.
 
-Keep two modes working:
+Keep two UI-selectable modes working:
 
 - Simulation mode is the default. It needs no wallet, RPC endpoint, or Claude
   key and powers the interactive dashboard demo.
 - Sepolia mode ingests escrow events and signs arbitration transactions. It is
   enabled only when all chain settings are present.
+
+`TESTNET_ENABLED=true` starts Sepolia alongside a simulation-default UI;
+`SIMULATION_MODE=false` starts Sepolia and makes it the UI default. Simulation
+payments remain available in either case. The health response is authoritative
+for `testnet_available`; the frontend must not present a cosmetic live mode when
+the listener is not configured.
 
 Do not replace the stablecoin escrow with native ETH. The configured ERC-20 is
 immutable per deployment, and amounts remain integer base units everywhere
@@ -46,6 +52,8 @@ authorization tests in `contracts/test/ParadimeEscrow.ts`.
 - `app/main.py`: FastAPI lifespan, dependency wiring, listener startup, CORS,
   and `/ws/payments`.
 - `app/api.py`: health, payment, agent, statistics, and simulation endpoints.
+  Health advertises the default mode and testnet availability. Payment and
+  statistics queries accept a mode filter so UI environments do not mix data.
   `/api/intents` accepts Sepolia intent envelopes only after their sender
   signature, canonical hash, configured token, nonce, and expiry validate.
 - `app/autonomy.py`: the buyer session wallet, signed spending-mandate policy,
@@ -108,6 +116,19 @@ intent signing and registration, USDC approval, and escrow deposits.
 update all affected boundaries together. Never convert token base-unit strings
 through JavaScript `Number`; format and compare them with `BigInt`.
 
+`src/DemoPage.tsx` owns the `/demo` playground, guided scenarios, browser
+terminal, and explicitly conceptual protection lab. Its scenario and terminal
+requests share `backend/app/demo.py`; `./paradime` is the local CLI for that
+same bounded dispatcher. Never execute terminal input as host shell commands.
+`./demo` defaults to actual Sepolia transactions using encrypted configuration
+and the explicitly enabled managed payer. Its records persist across restarts.
+Only explicit offline simulation discards live signers, RPC, and LLM settings.
+The launcher owns both child server process groups and keeps credentials out of
+the frontend process. Never attach Etherscan links to synthetic identifiers.
+Track and resume persisted operations without creating a second deposit.
+Keep offline simulation and the protection concept visibly labeled; the lab's
+illustrative premium is not a pricing model or implemented coverage product.
+
 The dashboard must remain usable with an empty payment list, during API/WebSocket
 failure, and on mobile widths. Do not add wallet requirements to simulation
 mode.
@@ -143,6 +164,9 @@ coverage.
 - Store real durable secrets only in SOPS-encrypted files under `secrets/` and
   invoke consumers with `with-secrets FILE... -- COMMAND`.
 - `ARBITRATOR_PRIVATE_KEY` must match the contract's current arbitrator.
+- The UI's managed Sepolia demo payer is disabled by default. It requires both
+  encrypted `DEPLOYER_PRIVATE_KEY` and `MANAGED_DEMO_WALLET_ENABLED=true`, must
+  remain testnet-only, and must never expose the private key through an API.
 - `AUTONOMOUS_BUYER_PRIVATE_KEY` is optional. When present in Sepolia mode,
   `SELLER_ADDRESS` is required; the dedicated buyer wallet needs test ETH and
   test USDC. Keep this key encrypted and separate from the arbitrator.

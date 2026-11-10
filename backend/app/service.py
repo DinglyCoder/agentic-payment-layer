@@ -288,9 +288,10 @@ class PaymentProcessor:
                 | (Payment.next_resolution_attempt_at <= now),
             )
             for payment in (await session.scalars(query)).all():
-                if payment.decision == "recall" and payment.recall_deadline >= now:
+                deadline = payment.recall_deadline.replace(tzinfo=UTC)
+                if payment.decision == "recall" and deadline >= now:
                     await self._resolve(payment, session, "recall")
-                elif payment.decision == "execute" and payment.recall_deadline < now:
+                elif payment.decision == "execute" and deadline < now:
                     await self._resolve(payment, session, "execute")
 
     async def _resolve(self, payment: Payment, session, decision: str) -> None:

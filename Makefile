@@ -1,4 +1,7 @@
-.PHONY: install test format dev-backend dev-frontend
+.PHONY: install test format demo dev-backend dev-frontend
+
+demo:
+	uv run --frozen --project backend python scripts/demo.py $(DEMO_ARGS)
 
 install:
 	cd backend && uv sync

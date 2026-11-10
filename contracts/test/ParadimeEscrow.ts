@@ -1,8 +1,31 @@
 import { expect } from "chai";
 import { network } from "hardhat";
+import { readFile } from "node:fs/promises";
 import type { MockStablecoin, ParadimeEscrow } from "../types/ethers-contracts/index.js";
 
 describe("ParadimeEscrow", function () {
+  it("keeps the backend payment ABI compatible with the compiled escrow", async function () {
+    const { ethers } = await network.create();
+    const artifact = await ethers.getContractFactory("ParadimeEscrow");
+    const backendAbi = JSON.parse(await readFile(
+      new URL("../../backend/app/contract_abi.json", import.meta.url), "utf8",
+    ));
+    const backend = new ethers.Interface(backendAbi);
+    for (const name of ["deposit", "executePayment", "recallPayment", "payments", "paymentToken", "arbitrator"]) {
+      expect(backend.getFunction(name), `missing ${name}`).not.to.equal(null);
+      expect(backend.getFunction(name)!.format("sighash")).to.equal(
+        artifact.interface.getFunction(name)!.format("sighash"),
+      );
+    }
+    for (const name of ["PaymentDeposited", "PaymentExecuted", "PaymentRecalled"]) {
+      const provided = backend.getEvent(name)!;
+      const compiled = artifact.interface.getEvent(name)!;
+      expect(provided.format("sighash")).to.equal(compiled.format("sighash"));
+      expect(provided.inputs.map((input) => Boolean(input.indexed))).to.deep.equal(
+        compiled.inputs.map((input) => Boolean(input.indexed)),
+      );
+    }
+  });
   async function fixture() {
     const { ethers, networkHelpers } = await network.create();
     const [arbitrator, sender, receiver, stranger] = await ethers.getSigners();

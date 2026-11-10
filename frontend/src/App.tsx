@@ -31,7 +31,8 @@ import {
 } from "lucide-react";
 import { FormEvent, ReactNode, useEffect, useMemo, useState } from "react";
 import { api, openPaymentStream } from "./api";
-import type { Agent, DemoPaymentInput, Health, Payment, Stats } from "./types";
+import DemoPage from "./DemoPage";
+import type { Agent, DemoPaymentInput, Health, ManagedDemoWallet, Payment, Stats } from "./types";
 import type { ChainDepositResult, WalletState } from "./wallet";
 
 const EMPTY_STATS: Stats = {
@@ -56,12 +57,19 @@ const CHAT_PRESETS = [
   { label: "Settle a data license", amount: "48.00", description: "Training data license settlement" },
 ];
 
-type Page = "/" | "/pay" | "/dashboard" | "/agents";
+const SIMULATION_AGENTS: Agent[] = [
+  { address: DEFAULT_INPUT.sender, name: "Procurement Agent", status: "verified", trust_score: 96 },
+  { address: DEFAULT_INPUT.receiver, name: "Compute Marketplace", status: "verified", trust_score: 92 },
+];
+
+type Page = "/" | "/demo" | "/pay" | "/dashboard" | "/agents";
 type PaymentMode = "direct" | "chat";
+type EnvironmentMode = "simulation" | "sepolia";
+type TestnetPayer = "demo" | "browser";
 
 function currentPage(): Page {
   const path = window.location.pathname.replace(/\/$/, "") || "/";
-  return (["/", "/pay", "/dashboard", "/agents"] as Page[]).includes(path as Page)
+  return (["/", "/demo", "/pay", "/dashboard", "/agents"] as Page[]).includes(path as Page)
     ? (path as Page)
     : "/";
 }
@@ -76,33 +84,59 @@ export default function App() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [connected, setConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [environment, setEnvironment] = useState<EnvironmentMode>(() => {
+    if (currentPage() === "/demo") return "sepolia";
+    const saved = window.localStorage.getItem("paradime-environment");
+    return saved === "sepolia" ? "sepolia" : "simulation";
+  });
 
   useEffect(() => {
-    const onPopState = () => setPage(currentPage());
+    const onPopState = () => {
+      const next = currentPage();
+      setPage(next);
+    };
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);
   }, []);
 
   useEffect(() => {
-    Promise.all([api.payments(), api.agents(), api.stats(), api.health()])
-      .then(([paymentData, agentData, statData, healthData]) => {
-        setPayments(paymentData);
+    Promise.all([api.agents(), api.health()])
+      .then(([agentData, healthData]) => {
         setAgents(agentData);
-        setStats(statData);
         setHealth(healthData);
+        const saved = window.localStorage.getItem("paradime-environment");
+        const requested = healthData.mode === "sepolia" || currentPage() === "/demo" ? healthData.mode : saved === "simulation" || saved === "sepolia" ? saved : healthData.mode;
+        setEnvironment(requested === "sepolia" && !healthData.testnet_available ? "simulation" : requested);
+      })
+      .catch((reason: Error) => setError(reason.message));
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([api.payments(environment), api.stats(environment)])
+      .then(([paymentData, statData]) => {
+        if (cancelled) return;
+        setPayments(paymentData);
+        setStats(statData);
         setSelectedId(paymentData[0]?.payment_id ?? null);
+        setError(null);
       })
       .catch((reason: Error) => setError(reason.message));
 
-    return openPaymentStream(
+    const closeStream = openPaymentStream(
       (payment) => {
+        if (payment.source !== environment) return;
         setPayments((current) => [payment, ...current.filter((item) => item.payment_id !== payment.payment_id)]);
         setSelectedId(payment.payment_id);
-        void api.stats().then(setStats).catch(() => undefined);
+        void api.stats(environment).then(setStats).catch(() => undefined);
       },
       setConnected,
     );
-  }, []);
+    return () => {
+      cancelled = true;
+      closeStream();
+    };
+  }, [environment]);
 
   function navigate(next: Page) {
     window.history.pushState({}, "", next);
@@ -114,7 +148,16 @@ export default function App() {
   function handlePayment(payment: Payment) {
     setPayments((current) => [payment, ...current.filter((item) => item.payment_id !== payment.payment_id)]);
     setSelectedId(payment.payment_id);
-    void api.stats().then(setStats).catch(() => undefined);
+    void api.stats(environment).then(setStats).catch(() => undefined);
+  }
+
+  function changeEnvironment(next: EnvironmentMode) {
+    if (next === "sepolia" && !health?.testnet_available) return;
+    window.localStorage.setItem("paradime-environment", next);
+    setPayments([]);
+    setStats(EMPTY_STATS);
+    setSelectedId(null);
+    setEnvironment(next);
   }
 
   const selected = useMemo(
@@ -125,23 +168,29 @@ export default function App() {
     () => new Map(agents.map((agent) => [agent.address.toLowerCase(), agent.name])),
     [agents],
   );
+  const activeHealth = useMemo(
+    () => (health ? { ...health, mode: environment } : null),
+    [environment, health],
+  );
 
   return (
     <div className="site-shell">
-      <Header page={page} connected={connected} health={health} menuOpen={menuOpen} onMenu={() => setMenuOpen((open) => !open)} navigate={navigate} />
+      <Header page={page} connected={connected} health={activeHealth} menuOpen={menuOpen} onMenu={() => setMenuOpen((open) => !open)} navigate={navigate} environment={environment} onEnvironment={changeEnvironment} />
       {error && page !== "/" && <div className="global-error" role="alert">Live data unavailable: {error}</div>}
-      {page === "/" && <LandingPage stats={stats} health={health} navigate={navigate} />}
-      {page === "/pay" && <PayPage agents={agents} health={health} onPayment={handlePayment} navigate={navigate} />}
-      {page === "/dashboard" && <DashboardPage payments={payments} stats={stats} health={health} selected={selected} selectedId={selectedId} agentNames={agentNames} setSelectedId={setSelectedId} />}
-      {page === "/agents" && <AgentsPage agents={agents} payments={payments} health={health} navigate={navigate} />}
+      {page === "/" && <LandingPage stats={stats} health={activeHealth} navigate={navigate} />}
+      {page === "/demo" && <DemoPage key={environment} mode={environment} health={activeHealth} onPayment={handlePayment} openDashboard={() => navigate("/dashboard")} openWallet={() => { navigate("/pay"); window.history.replaceState({}, "", "/pay?wallet=browser"); }} />}
+      {page === "/pay" && <PayPage key={environment} agents={agents} health={activeHealth} onPayment={handlePayment} navigate={navigate} />}
+      {page === "/dashboard" && <DashboardPage payments={payments} stats={stats} health={activeHealth} selected={selected} selectedId={selectedId} agentNames={agentNames} setSelectedId={setSelectedId} />}
+      {page === "/agents" && <AgentsPage agents={agents} payments={payments} health={activeHealth} navigate={navigate} />}
       <Footer navigate={navigate} />
     </div>
   );
 }
 
-function Header({ page, connected, health, menuOpen, onMenu, navigate }: { page: Page; connected: boolean; health: Health | null; menuOpen: boolean; onMenu: () => void; navigate: (page: Page) => void }) {
+function Header({ page, connected, health, menuOpen, onMenu, navigate, environment, onEnvironment }: { page: Page; connected: boolean; health: Health | null; menuOpen: boolean; onMenu: () => void; navigate: (page: Page) => void; environment: EnvironmentMode; onEnvironment: (mode: EnvironmentMode) => void }) {
   const links: { path: Page; label: string }[] = [
     { path: "/", label: "Product" },
+    { path: "/demo", label: "Playground" },
     { path: "/pay", label: "Pay" },
     { path: "/dashboard", label: "Payments" },
     { path: "/agents", label: "Agents" },
@@ -153,6 +202,10 @@ function Header({ page, connected, health, menuOpen, onMenu, navigate }: { page:
         {links.map((link) => <button className={page === link.path ? "active" : ""} onClick={() => navigate(link.path)} key={link.path}>{link.label}</button>)}
       </nav>
       <div className="header-actions">
+        <div className="environment-switch" role="group" aria-label="Payment environment">
+          <button className={environment === "simulation" ? "active" : ""} onClick={() => onEnvironment("simulation")}>Simulation</button>
+          <button className={environment === "sepolia" ? "active" : ""} disabled={!health?.testnet_available} title={health?.testnet_available ? "Use Ethereum Sepolia" : "Configure the Sepolia backend to enable testnet"} onClick={() => onEnvironment("sepolia")}>Testnet</button>
+        </div>
         <span className={`live-state ${connected ? "connected" : ""}`}><span /> {connected ? (health?.mode === "sepolia" ? "Sepolia live" : "Simulation live") : health ? "Reconnecting" : "Demo"}</span>
         <button className="header-cta" onClick={() => navigate("/pay")}>Make a payment <ArrowUpRight size={15} /></button>
         <button className="menu-button" onClick={onMenu} aria-label="Toggle navigation">{menuOpen ? <X /> : <Menu />}</button>
@@ -169,7 +222,7 @@ function LandingPage({ stats, health, navigate }: { stats: Stats; health: Health
           <p className="kicker"><span /> Infrastructure for autonomous commerce</p>
           <h1>Payments agents can make.<br /><em>Trust people can verify.</em></h1>
           <p className="hero-intro">Identity, real-time risk controls, and reversible stablecoin settlement—built for software that transacts on its own.</p>
-          <div className="hero-actions"><button className="button button-dark" onClick={() => navigate("/pay")}>Try a payment <ArrowRight size={17} /></button><button className="text-link" onClick={() => navigate("/dashboard")}>Explore the dashboard <ArrowUpRight size={15} /></button></div>
+          <div className="hero-actions"><button className="button button-dark" onClick={() => navigate("/demo")}>Launch interactive demo <ArrowRight size={17} /></button><button className="text-link" onClick={() => navigate("/dashboard")}>Explore the dashboard <ArrowUpRight size={15} /></button></div>
           <div className="hero-proof"><div><strong>30 sec</strong><span>recall window</span></div><div><strong>{stats.total_payments || "Live"}</strong><span>payments screened</span></div><div><strong>{health?.stablecoin_symbol ?? "USDC"}</strong><span>stablecoin settlement</span></div></div>
         </div>
         <div className="hero-visual" aria-label="A protected agent payment in progress">
@@ -205,17 +258,32 @@ function PayPage({ agents, health, onPayment, navigate }: { agents: Agent[]; hea
   const [created, setCreated] = useState<Payment | null>(null);
   const [chainSubmission, setChainSubmission] = useState<ChainDepositResult | null>(null);
   const [wallet, setWallet] = useState<WalletState | null>(null);
+  const [demoWallet, setDemoWallet] = useState<ManagedDemoWallet | null>(null);
+  const [testnetPayer, setTestnetPayer] = useState<TestnetPayer>(() => new URLSearchParams(window.location.search).get("wallet") === "browser" ? "browser" : "demo");
   const [chainStage, setChainStage] = useState<"approval" | "deposit" | null>(null);
   const [chatStep, setChatStep] = useState(0);
+  const paymentAgents = agents.length >= 2 ? agents : SIMULATION_AGENTS;
+  const activeWallet: WalletState | null = testnetPayer === "demo" && demoWallet?.enabled && demoWallet.address
+    ? { address: demoWallet.address, balanceUnits: demoWallet.balance_units ?? "0" }
+    : wallet;
+
+  useEffect(() => {
+    if (health?.mode !== "sepolia") return;
+    void api.managedDemoWallet()
+      .then((status) => {
+        setDemoWallet(status);
+        if (!status.enabled) setTestnetPayer("browser");
+      })
+      .catch(() => setTestnetPayer("browser"));
+  }, [health?.mode]);
 
   useEffect(() => {
     if (health?.mode === "sepolia") {
       setInput((current) => ({ ...current, receiver: current.receiver === DEFAULT_INPUT.receiver ? "" : current.receiver }));
       return;
     }
-    if (agents.length < 2) return;
-    setInput((current) => ({ ...current, sender: agents.some((agent) => agent.address === current.sender) ? current.sender : agents[0].address, receiver: agents.some((agent) => agent.address === current.receiver) ? current.receiver : agents[1].address }));
-  }, [agents, health?.mode]);
+    setInput((current) => ({ ...current, sender: paymentAgents.some((agent) => agent.address === current.sender) ? current.sender : paymentAgents[0].address, receiver: paymentAgents.some((agent) => agent.address === current.receiver) ? current.receiver : paymentAgents[1].address }));
+  }, [health?.mode, paymentAgents]);
 
   async function connectWallet() {
     if (!health) return;
@@ -234,11 +302,27 @@ function PayPage({ agents, health, onPayment, navigate }: { agents: Agent[]; hea
     setSubmitting(true);
     setLocalError(null);
     try {
+      if (!health) throw new Error("Waiting for the backend payment environment. Try again when it is ready.");
       if (health?.mode === "sepolia") {
-        if (!wallet) throw new Error("Connect a Sepolia wallet before submitting a payment");
-        const { depositSepoliaUsdc } = await import("./wallet");
-        const submission = await depositSepoliaUsdc(paymentInput, health, setChainStage);
-        setChainSubmission(submission);
+        if (testnetPayer === "demo") {
+          if (!demoWallet?.enabled) throw new Error("The application demo wallet is not enabled");
+          setChainStage("deposit");
+          const submission = await api.payWithManagedDemoWallet(paymentInput);
+          setChainSubmission({
+            paymentId: submission.payment_id,
+            depositTxHash: submission.deposit_tx_hash,
+            approvalTxHash: submission.approval_tx_hash,
+            sender: submission.sender,
+            receiver: submission.receiver,
+            amountUnits: submission.amount_units,
+          });
+          void api.managedDemoWallet().then(setDemoWallet).catch(() => undefined);
+        } else {
+          if (!wallet) throw new Error("Connect a Sepolia wallet before submitting a payment");
+          const { depositSepoliaUsdc } = await import("./wallet");
+          const submission = await depositSepoliaUsdc(paymentInput, health, setChainStage);
+          setChainSubmission(submission);
+        }
       } else {
         const payment = await api.simulate(paymentInput);
         setCreated(payment);
@@ -261,7 +345,8 @@ function PayPage({ agents, health, onPayment, navigate }: { agents: Agent[]; hea
       <section className="section-wrap pay-layout">
         <div className="payment-workspace">
           <div className="mode-switch" role="tablist" aria-label="Payment method"><button className={mode === "direct" ? "active" : ""} onClick={() => setMode("direct")}><WalletCards /> Direct payment</button><button className={mode === "chat" ? "active" : ""} onClick={() => setMode("chat")}><MessageSquareText /> Guided chat <span>New</span></button></div>
-          {chainSubmission ? <ChainPaymentSuccess submission={chainSubmission} health={health} onAgain={() => { setChainSubmission(null); setChatStep(0); }} navigate={navigate} /> : created ? <PaymentSuccess payment={created} health={health} onAgain={() => { setCreated(null); setChatStep(0); }} navigate={navigate} /> : mode === "direct" ? <DirectPaymentForm agents={agents} health={health} input={input} setInput={setInput} wallet={wallet} chainStage={chainStage} onConnect={() => void connectWallet()} submitting={submitting} error={localError} onSubmit={submitDirect} /> : <ChatPayment agents={agents} health={health} input={input} setInput={setInput} wallet={wallet} chainStage={chainStage} onConnect={() => void connectWallet()} step={chatStep} setStep={setChatStep} submitting={submitting} error={localError} onPreset={selectPreset} onCreate={() => void createPayment(input)} />}
+          {health?.mode === "sepolia" && <div className="payer-switch" role="group" aria-label="Testnet paying wallet"><span>Pay with</span><button className={testnetPayer === "demo" ? "active" : ""} disabled={!demoWallet?.enabled} onClick={() => setTestnetPayer("demo")}><Bot /> Demo wallet</button><button className={testnetPayer === "browser" ? "active" : ""} onClick={() => setTestnetPayer("browser")}><Wallet /> Connect wallet</button></div>}
+          {chainSubmission ? <ChainPaymentSuccess submission={chainSubmission} health={health} onAgain={() => { setChainSubmission(null); setChatStep(0); }} navigate={navigate} /> : created ? <PaymentSuccess payment={created} health={health} onAgain={() => { setCreated(null); setChatStep(0); }} navigate={navigate} /> : mode === "direct" ? <DirectPaymentForm agents={paymentAgents} health={health} input={input} setInput={setInput} wallet={activeWallet} testnetPayer={testnetPayer} chainStage={chainStage} onConnect={() => void connectWallet()} submitting={submitting} error={localError} onSubmit={submitDirect} /> : <ChatPayment agents={paymentAgents} health={health} input={input} setInput={setInput} wallet={activeWallet} testnetPayer={testnetPayer} chainStage={chainStage} onConnect={() => void connectWallet()} step={chatStep} setStep={setChatStep} submitting={submitting} error={localError} onPreset={selectPreset} onCreate={() => void createPayment(input)} />}
         </div>
         <aside className="payment-aside"><p className="kicker">Protected by default</p><h2>Every payment is screened before settlement.</h2><div className="aside-timeline"><div><span><Check /></span><p><strong>Agent identities checked</strong><small>Sender and receiver are matched against the registry.</small></p></div><div><span><Activity /></span><p><strong>Risk assessed in real time</strong><small>Value, velocity, and behavioral signals are evaluated.</small></p></div><div><span><Clock3 /></span><p><strong>30-second recall window</strong><small>Suspicious transfers can return before final settlement.</small></p></div></div>{health?.mode === "sepolia" ? <div className="chain-note"><Network /><p><strong>Ethereum Sepolia</strong><span>Real test USDC, real wallet signatures, and publicly verifiable transactions.</span></p>{health.contract_address && <ExplorerLink kind="address" value={health.contract_address} label="View escrow" />}</div> : <div className="simulation-note"><LockKeyhole /><p><strong>Safe demonstration</strong><span>This environment uses simulated funds. No wallet is required.</span></p></div>}</aside>
       </section>
@@ -269,14 +354,14 @@ function PayPage({ agents, health, onPayment, navigate }: { agents: Agent[]; hea
   );
 }
 
-function DirectPaymentForm({ agents, health, input, setInput, wallet, chainStage, onConnect, submitting, error, onSubmit }: { agents: Agent[]; health: Health | null; input: DemoPaymentInput; setInput: (input: DemoPaymentInput) => void; wallet: WalletState | null; chainStage: "approval" | "deposit" | null; onConnect: () => void; submitting: boolean; error: string | null; onSubmit: (event: FormEvent) => void }) {
+function DirectPaymentForm({ agents, health, input, setInput, wallet, testnetPayer, chainStage, onConnect, submitting, error, onSubmit }: { agents: Agent[]; health: Health | null; input: DemoPaymentInput; setInput: (input: DemoPaymentInput) => void; wallet: WalletState | null; testnetPayer: TestnetPayer; chainStage: "approval" | "deposit" | null; onConnect: () => void; submitting: boolean; error: string | null; onSubmit: (event: FormEvent) => void }) {
   const onChain = health?.mode === "sepolia";
-  const submitLabel = chainStage === "approval" ? "Approve USDC in wallet…" : chainStage === "deposit" ? "Confirm escrow deposit…" : onChain ? "Approve & deposit" : "Review and pay";
+  const submitLabel = chainStage === "approval" ? "Approve USDC in wallet…" : chainStage === "deposit" ? (testnetPayer === "demo" ? "Submitting escrow deposit…" : "Confirm escrow deposit…") : onChain ? (testnetPayer === "demo" ? "Pay with demo wallet" : "Approve & deposit") : "Review and pay";
   return (
     <form className="direct-form" onSubmit={onSubmit}>
       <div className="form-title"><div><h2>New payment</h2><p>Enter the parties and settlement details.</p></div><span className="environment"><span /> {health?.mode === "sepolia" ? "Sepolia" : "Simulation"}</span></div>
       {error && <div className="form-error">{error}</div>}
-      {onChain && <div className="wallet-row">{wallet ? <><span className="wallet-status"><Wallet /><span><small>Connected Sepolia wallet</small><strong>{shortAddress(wallet.address, 8)}</strong></span></span><span className="wallet-balance"><small>Test USDC balance</small><strong>{formatStablecoin(wallet.balanceUnits, health.stablecoin_decimals)} {health.stablecoin_symbol}</strong></span></> : <><span><Wallet /><span><strong>Connect your payment wallet</strong><small>MetaMask or another EIP-1193 wallet</small></span></span><button type="button" onClick={onConnect}>Connect wallet</button></>}</div>}
+      {onChain && <div className="wallet-row">{wallet ? <><span className="wallet-status">{testnetPayer === "demo" ? <Bot /> : <Wallet />}<span><small>{testnetPayer === "demo" ? "Application demo wallet" : "Connected Sepolia wallet"}</small><strong>{shortAddress(wallet.address, 8)}</strong></span></span><span className="wallet-balance"><small>Test USDC balance</small><strong>{formatStablecoin(wallet.balanceUnits, health.stablecoin_decimals)} {health.stablecoin_symbol}</strong></span></> : <><span><Wallet /><span><strong>Connect your payment wallet</strong><small>MetaMask or another EIP-1193 wallet</small></span></span><button type="button" onClick={onConnect}>Connect wallet</button></>}</div>}
       <div className="field-grid">{onChain ? <label>Paying wallet<input value={wallet?.address ?? "Not connected"} readOnly /></label> : <label>Paying agent<select value={input.sender} onChange={(event) => setInput({ ...input, sender: event.target.value })}>{agents.map((agent) => <option value={agent.address} key={agent.address}>{agent.name} · {agent.status}</option>)}</select></label>}<span className="field-arrow"><ArrowRight /></span>{onChain ? <label>Receiving wallet<input required pattern="^0x[a-fA-F0-9]{40}$" value={input.receiver} onChange={(event) => setInput({ ...input, receiver: event.target.value })} placeholder="0x… recipient wallet" /></label> : <label>Receiving agent<select value={input.receiver} onChange={(event) => setInput({ ...input, receiver: event.target.value })}>{agents.map((agent) => <option value={agent.address} key={agent.address}>{agent.name} · {agent.status}</option>)}</select></label>}</div>
       <label>Amount<div className="amount-input"><input type="number" min="0.000001" step="0.000001" value={input.amount_usdc} onChange={(event) => setInput({ ...input, amount_usdc: event.target.value })} /><span>{health?.stablecoin_symbol ?? "USDC"}<ChevronDown /></span></div></label>
       <label>Payment memo<input value={input.description} minLength={3} maxLength={120} onChange={(event) => setInput({ ...input, description: event.target.value })} placeholder="What is this payment for?" /></label>
@@ -287,14 +372,14 @@ function DirectPaymentForm({ agents, health, input, setInput, wallet, chainStage
   );
 }
 
-function ChatPayment({ agents, health, input, setInput, wallet, chainStage, onConnect, step, setStep, submitting, error, onPreset, onCreate }: { agents: Agent[]; health: Health | null; input: DemoPaymentInput; setInput: (input: DemoPaymentInput) => void; wallet: WalletState | null; chainStage: "approval" | "deposit" | null; onConnect: () => void; step: number; setStep: (step: number) => void; submitting: boolean; error: string | null; onPreset: (preset: (typeof CHAT_PRESETS)[number]) => void; onCreate: () => void }) {
+function ChatPayment({ agents, health, input, setInput, wallet, testnetPayer, chainStage, onConnect, step, setStep, submitting, error, onPreset, onCreate }: { agents: Agent[]; health: Health | null; input: DemoPaymentInput; setInput: (input: DemoPaymentInput) => void; wallet: WalletState | null; testnetPayer: TestnetPayer; chainStage: "approval" | "deposit" | null; onConnect: () => void; step: number; setStep: (step: number) => void; submitting: boolean; error: string | null; onPreset: (preset: (typeof CHAT_PRESETS)[number]) => void; onCreate: () => void }) {
   const onChain = health?.mode === "sepolia";
   const senderName = wallet ? shortAddress(wallet.address, 7) : agents.find((agent) => agent.address === input.sender)?.name ?? "Buyer agent";
   const receiverName = agents.find((agent) => agent.address === input.receiver)?.name ?? "Receiver agent";
   return (
     <section className="chat-shell">
       <div className="chat-head"><div className="assistant-mark"><ShieldCheck /></div><div><strong>Payment assistant</strong><span><i /> {onChain ? "Sepolia on-chain mode" : "Ready to compose"}</span></div>{onChain && !wallet ? <button className="chat-connect" onClick={onConnect}><Wallet /> Connect</button> : <button aria-label="Reset chat" onClick={() => setStep(0)}><RotateCcw /></button>}</div>
-      <div className="chat-thread"><div className="chat-day">Today</div>{onChain && !wallet && <ChatBubble assistant>Connect a Sepolia wallet first. You’ll sign a test USDC approval and the escrow deposit in your wallet.</ChatBubble>}<ChatBubble assistant>What would you like to pay for?</ChatBubble>{step === 0 && <div className="prompt-options">{CHAT_PRESETS.map((preset) => <button onClick={() => onPreset(preset)} key={preset.label}>{preset.label}<ArrowUpRight /></button>)}</div>}{step >= 1 && <><ChatBubble>{input.description}</ChatBubble><ChatBubble assistant>I can prepare that. Who should receive the payment?</ChatBubble></>}{step === 1 && (onChain ? <form className="chat-address-entry" onSubmit={(event) => { event.preventDefault(); if (/^0x[a-fA-F0-9]{40}$/.test(input.receiver)) setStep(2); }}><input required pattern="^0x[a-fA-F0-9]{40}$" value={input.receiver} onChange={(event) => setInput({ ...input, receiver: event.target.value })} placeholder="Paste the recipient's Sepolia wallet" /><button>Use wallet <ArrowRight /></button></form> : <div className="prompt-options compact-options">{agents.filter((agent) => agent.address !== input.sender).map((agent) => <button key={agent.address} onClick={() => { setInput({ ...input, receiver: agent.address }); setStep(2); }}><span><strong>{agent.name}</strong><small>{agent.status} · trust {agent.trust_score}</small></span><ChevronRight /></button>)}</div>)}{step >= 2 && <><ChatBubble>{onChain ? shortAddress(input.receiver, 8) : receiverName}</ChatBubble><ChatBubble assistant>Here’s the payment I’ve prepared. Review the details before screening begins.</ChatBubble><div className="chat-payment-card"><div><span>From</span><strong>{senderName}</strong></div><ArrowRight /><div><span>To</span><strong>{onChain ? shortAddress(input.receiver, 7) : receiverName}</strong></div><div className="chat-amount"><span>Total</span><strong>{input.amount_usdc} {health?.stablecoin_symbol ?? "USDC"}</strong></div><button className="button button-dark" disabled={submitting || (onChain && !wallet)} onClick={onCreate}>{submitting ? (chainStage === "approval" ? "Approve in wallet…" : "Deposit in wallet…") : onChain ? "Sign & deposit" : "Confirm payment"}</button></div></>}{error && <div className="form-error">{error}</div>}</div>
+      <div className="chat-thread"><div className="chat-day">Today</div>{onChain && !wallet && <ChatBubble assistant>Connect a Sepolia wallet first. You’ll sign a test USDC approval and the escrow deposit in your wallet.</ChatBubble>}{onChain && testnetPayer === "demo" && wallet && <ChatBubble assistant>The application demo wallet will sign and submit this testnet payment for you.</ChatBubble>}<ChatBubble assistant>What would you like to pay for?</ChatBubble>{step === 0 && <div className="prompt-options">{CHAT_PRESETS.map((preset) => <button onClick={() => onPreset(preset)} key={preset.label}>{preset.label}<ArrowUpRight /></button>)}</div>}{step >= 1 && <><ChatBubble>{input.description}</ChatBubble><ChatBubble assistant>I can prepare that. Who should receive the payment?</ChatBubble></>}{step === 1 && (onChain ? <form className="chat-address-entry" onSubmit={(event) => { event.preventDefault(); if (/^0x[a-fA-F0-9]{40}$/.test(input.receiver)) setStep(2); }}><input required pattern="^0x[a-fA-F0-9]{40}$" value={input.receiver} onChange={(event) => setInput({ ...input, receiver: event.target.value })} placeholder="Paste the recipient's Sepolia wallet" /><button>Use wallet <ArrowRight /></button></form> : <div className="prompt-options compact-options">{agents.filter((agent) => agent.address !== input.sender).map((agent) => <button key={agent.address} onClick={() => { setInput({ ...input, receiver: agent.address }); setStep(2); }}><span><strong>{agent.name}</strong><small>{agent.status} · trust {agent.trust_score}</small></span><ChevronRight /></button>)}</div>)}{step >= 2 && <><ChatBubble>{onChain ? shortAddress(input.receiver, 8) : receiverName}</ChatBubble><ChatBubble assistant>Here’s the payment I’ve prepared. Review the details before screening begins.</ChatBubble><div className="chat-payment-card"><div><span>From</span><strong>{senderName}</strong></div><ArrowRight /><div><span>To</span><strong>{onChain ? shortAddress(input.receiver, 7) : receiverName}</strong></div><div className="chat-amount"><span>Total</span><strong>{input.amount_usdc} {health?.stablecoin_symbol ?? "USDC"}</strong></div><button className="button button-dark" disabled={submitting || (onChain && !wallet)} onClick={onCreate}>{submitting ? (chainStage === "approval" ? "Approve in wallet…" : "Submitting deposit…") : onChain ? (testnetPayer === "demo" ? "Pay with demo wallet" : "Sign & deposit") : "Confirm payment"}</button></div></>}{error && <div className="form-error">{error}</div>}</div>
       <div className="chat-composer"><button><Sparkles /></button><span>{step < 2 ? "Choose a response above to continue" : "Payment ready for confirmation"}</span><button className="send-button" disabled><Send /></button></div><p className="chat-disclaimer">{onChain ? "Real Sepolia transaction · Test tokens have no financial value" : "Guided simulation · No autonomous instructions are executed"}</p>
     </section>
   );

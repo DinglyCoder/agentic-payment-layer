@@ -22,6 +22,29 @@ class DemoPaymentCreate(BaseModel):
         return receiver
 
 
+class ManagedDemoPaymentCreate(BaseModel):
+    receiver: str = Field(pattern=ADDRESS_PATTERN)
+    amount_usdc: Decimal = Field(gt=0, le=1_000_000, decimal_places=6)
+    description: str = Field(min_length=3, max_length=240)
+
+
+class ManagedDemoWalletRead(BaseModel):
+    enabled: bool
+    address: str | None
+    balance_units: str | None
+    max_amount_units: str
+    remaining_session_budget_units: str
+
+
+class ManagedDemoPaymentRead(BaseModel):
+    payment_id: str
+    deposit_tx_hash: str
+    approval_tx_hash: str | None
+    sender: str
+    receiver: str
+    amount_units: str
+
+
 class PaymentRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -49,7 +72,7 @@ class PaymentRead(BaseModel):
     resolution_attempts: int
     resolution_error: str | None
 
-    @field_validator("deposited_at", "recall_deadline", mode="before")
+    @field_validator("deposited_at", "recall_deadline", mode="after")
     @classmethod
     def mark_sqlite_datetimes_as_utc(cls, value: datetime) -> datetime:
         return value.replace(tzinfo=UTC) if value.tzinfo is None else value
@@ -76,6 +99,7 @@ class StatsRead(BaseModel):
 class HealthRead(BaseModel):
     status: str
     mode: str
+    testnet_available: bool
     chain_id: int
     contract_address: str | None
     payment_token_address: str | None
@@ -124,7 +148,7 @@ class SpendingMandateRead(SpendingMandateCreate):
 
     spent_units: str
 
-    @field_validator("expires_at", mode="before")
+    @field_validator("expires_at", mode="after")
     @classmethod
     def mark_mandate_datetime_as_utc(cls, value: datetime) -> datetime:
         return value.replace(tzinfo=UTC) if value.tzinfo is None else value
@@ -158,7 +182,7 @@ class AutonomousPurchaseRead(BaseModel):
     created_at: datetime
     completed_at: datetime | None
 
-    @field_validator("created_at", "completed_at", mode="before")
+    @field_validator("created_at", "completed_at", mode="after")
     @classmethod
     def mark_purchase_datetimes_as_utc(cls, value: datetime | None) -> datetime | None:
         if value is None or value.tzinfo is not None:

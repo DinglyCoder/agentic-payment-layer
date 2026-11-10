@@ -57,9 +57,9 @@ class SellerComputeAgent:
     @property
     def address(self) -> str:
         address = self.settings.seller_address
-        if address is None and self.settings.simulation_mode:
+        if not address and self.settings.simulation_mode:
             address = self.settings.simulation_seller_address
-        if address is None:
+        if not address:
             raise ValueError("seller wallet is not configured")
         return address.lower()
 
@@ -232,14 +232,20 @@ class BuyerAgent:
         processor,
         chain,
         seller: SellerComputeAgent,
+        *,
+        account: LocalAccount | None = None,
+        submit_deposit=None,
     ) -> None:
         self.settings = settings
         self.sessions = sessions
         self.processor = processor
         self.chain = chain
         self.seller = seller
+        self._submit_deposit = submit_deposit or chain.deposit_from
         self._purchase_lock = asyncio.Lock()
-        if settings.autonomous_buyer_private_key:
+        if account is not None:
+            self.account = account
+        elif settings.autonomous_buyer_private_key:
             self.account: LocalAccount | None = Account.from_key(
                 settings.autonomous_buyer_private_key.get_secret_value()
             )
@@ -299,7 +305,13 @@ class BuyerAgent:
             await session.commit()
             return mandate
 
-    async def purchase(self, request: AutonomousPurchaseCreate) -> AutonomousPurchase:
+    async def purchase(
+        self,
+        request: AutonomousPurchaseCreate,
+        *,
+        purchase_id: str | None = None,
+        payment_id: str | None = None,
+    ) -> AutonomousPurchase:
         if self.account is None:
             raise ValueError("autonomous buyer wallet is not configured")
         async with self._purchase_lock:
@@ -321,7 +333,7 @@ class BuyerAgent:
             async with self.sessions() as session:
                 mandate = await session.get(SpendingMandate, request.mandate_id.lower())
                 self._enforce_mandate(mandate, accepted)
-                purchase_id = "0x" + secrets.token_hex(32)
+                purchase_id = purchase_id or "0x" + secrets.token_hex(32)
                 purchase = AutonomousPurchase(
                     purchase_id=purchase_id,
                     mandate_id=mandate.mandate_id,
@@ -336,7 +348,7 @@ class BuyerAgent:
                 session.add(purchase)
                 await session.commit()
 
-            payment_id = "0x" + secrets.token_hex(32)
+            payment_id = payment_id or "0x" + secrets.token_hex(32)
             async with self.sessions() as session:
                 stored = await session.get(AutonomousPurchase, purchase.purchase_id)
                 stored.payment_id = payment_id
@@ -352,29 +364,57 @@ class BuyerAgent:
                     )
                     return await self._load_purchase(purchase.purchase_id)
 
-                payment_payload = self._payment_payload(purchase, mandate, payment, accepted)
-                async with self.sessions() as session:
-                    stored = await session.get(AutonomousPurchase, purchase.purchase_id)
-                    stored.x402_payload = payment_payload
-                    stored.status = "paid"
-                    await session.commit()
-
-                response = await self.seller.call_tool(
-                    self.sessions,
-                    tool["name"],
-                    {"prompt": request.prompt, "purchase_id": purchase.purchase_id},
-                    {"x402/payment": payment_payload},
-                )
-                async with self.sessions() as session:
-                    stored = await session.get(AutonomousPurchase, purchase.purchase_id)
-                    stored.result = response["structuredContent"]
-                    stored.status = "completed"
-                    stored.completed_at = utc_now()
-                    await session.commit()
-                    return stored
+                return await self.fulfill_purchase(purchase.purchase_id)
             except Exception as exc:
                 await self._fail_purchase(purchase.purchase_id, str(exc), release_budget=False)
                 raise
+
+    async def fulfill_purchase(self, purchase_id: str) -> AutonomousPurchase:
+        """Finish already-paid work, including after restart. Never submit a deposit here."""
+        async with self.sessions() as session:
+            purchase = await session.get(AutonomousPurchase, purchase_id)
+            if purchase is None:
+                raise ValueError("purchase not found")
+            mandate = await session.get(SpendingMandate, purchase.mandate_id)
+            if (
+                mandate is None
+                or mandate.delegate != self.address
+                or purchase.seller != self.seller.address
+            ):
+                raise ValueError("purchase belongs to a different payer or seller")
+            if purchase.status == "completed":
+                return purchase
+        payment = await self.processor.wait_for_terminal_payment(
+            purchase.payment_id,
+            self.settings.autonomous_purchase_timeout_seconds,
+        )
+        if payment.status != PaymentStatus.EXECUTED:
+            raise ValueError("payment did not execute; work cannot be released")
+        payload = self._payment_payload(
+            purchase,
+            mandate,
+            payment,
+            purchase.x402_requirement["accepts"][0],
+        )
+        async with self.sessions() as session:
+            stored = await session.get(AutonomousPurchase, purchase_id)
+            stored.x402_payload = payload
+            stored.status = "paid"
+            await session.commit()
+        response = await self.seller.call_tool(
+            self.sessions,
+            SELLER_TOOL_NAME,
+            {"prompt": purchase.prompt, "purchase_id": purchase_id},
+            {"x402/payment": payload},
+        )
+        async with self.sessions() as session:
+            stored = await session.get(AutonomousPurchase, purchase_id)
+            stored.result = response["structuredContent"]
+            stored.status = "completed"
+            stored.completed_at = utc_now()
+            stored.failure_reason = None
+            await session.commit()
+            return stored
 
     def _enforce_mandate(self, mandate: SpendingMandate | None, accepted: dict) -> None:
         if mandate is None:
@@ -431,7 +471,7 @@ class BuyerAgent:
             signature=signature_hex(self.account, metadata_hash),
         )
         await self.processor.register_intent(envelope)
-        await self.chain.deposit_from(
+        await self._submit_deposit(
             self.account,
             payment_id,
             self.seller.address,
