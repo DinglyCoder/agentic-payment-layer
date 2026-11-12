@@ -6,7 +6,7 @@ deployment state, and any follow-up that materially affects the next agent.
 Documentation-only bookkeeping remains available in `git log` and does not
 need a recursive entry in this file.
 
-## Current state — 2026-11-09
+## Current state — 2026-11-10
 
 - Branch: `main`
 - Remote: `https://github.com/DinglyCoder/agentic-payment-layer.git`
@@ -74,7 +74,7 @@ need a recursive entry in this file.
 - Runtime chain configuration and wallet keys are SOPS-encrypted in
   `secrets/sepolia.env`; no plaintext secret file is required.
 - Claude scoring: implemented but optional; no API key is stored in the repo.
-- Latest local verification: backend 28 tests, contracts 6 tests, frontend
+- Latest local verification: backend 46 tests, contracts 6 tests, frontend
   production build, Ruff, Solidity/TypeScript checks, and ESLint all passed.
   Headless Chrome exercised actual guided and browser-terminal purchases, a
   real refund, no-spend policy rejections, explorer links, receipt download,
@@ -82,6 +82,35 @@ need a recursive entry in this file.
   the user's wallet extension and confirmation; QA used the managed payer.
 
 ## Functional commit history
+
+### Working tree — Payment confirmation and live balance window (2026-11-10)
+
+- Added a shared native-dialog payment flow covering direct and guided checkout,
+  workspace scenarios/tours, and browser-terminal payment commands. Reviews
+  separate the actual charge from the authorized budget and show paying and
+  receiving wallets, live USDC/ETH balances, and projected USDC after deposit.
+- Added a read-only preview endpoint using the actual seller price, shared
+  command parser, and managed-wallet limits. Simulation has no invented wallet
+  balance; policy rejection previews show zero charge. The local CLI and
+  autonomous API remain non-interactive.
+- Final confirmation refreshes balances, checks for changed payment details,
+  and submits once. Browser wallets must still match the reviewed account.
+  Cancelled reviews never start an operation; failed refreshes block submission.
+- Added loading skeletons, pressed controls, actual-phase progress animations,
+  success feedback, refreshed completion balances, and minimized tracking that
+  survives route changes. Mode changes keep background payments out of the
+  other environment's feed. Reduced-motion preferences disable animations.
+- Rejected token-contract, escrow-contract, zero, and self recipients before
+  managed/browser submission. The previously diagnosed 4.2-USDC payment remains
+  unresolved; this change did not submit its recovery or any other transaction.
+- Verification: 46 backend tests, Ruff, frontend ESLint, and production build
+  passed. Chrome covered cancellation without payment POSTs, duplicate clicks,
+  direct/guided/workspace/terminal entry points, background tracking across
+  navigation, failed final refresh, mobile dialogs, reduced motion, and changed
+  wallet rejection before signing. Separate read-only Sepolia checks verified
+  actual wallet balances, projected deductions, and invalid-recipient and
+  insufficient-funds blockers with all mutation routes disabled. No testnet
+  payment, deployment, encrypted configuration, or dependency change occurred.
 
 ### Working tree — Payment console UI polish (2026-11-09)
 

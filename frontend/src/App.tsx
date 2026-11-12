@@ -29,10 +29,18 @@ import {
   Wallet,
   X,
 } from "lucide-react";
-import { FormEvent, ReactNode, useEffect, useMemo, useState } from "react";
+import {
+  FormEvent,
+  ReactNode,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { api, openPaymentStream } from "./api";
 import DemoPage from "./DemoPage";
 import { BrandMark, CopyButton } from "./components";
+import { displayUnits, usePaymentFlow } from "./payment-flow";
 import type {
   Agent,
   DemoPaymentInput,
@@ -121,6 +129,10 @@ export default function App() {
     const saved = window.localStorage.getItem("paradime-environment");
     return saved === "sepolia" ? "sepolia" : "simulation";
   });
+  const currentEnvironment = useRef(environment);
+  useEffect(() => {
+    currentEnvironment.current = environment;
+  }, [environment]);
 
   useEffect(() => {
     const onPopState = () => {
@@ -165,7 +177,7 @@ export default function App() {
       .catch((reason: Error) => setError(reason.message));
 
     const closeStream = openPaymentStream((payment) => {
-      if (payment.source !== environment) return;
+      if (payment.source !== currentEnvironment.current) return;
       setPayments((current) => [
         payment,
         ...current.filter((item) => item.payment_id !== payment.payment_id),
@@ -173,7 +185,9 @@ export default function App() {
       setSelectedId(payment.payment_id);
       void api
         .stats(environment)
-        .then(setStats)
+        .then((value) => {
+          if (payment.source === currentEnvironment.current) setStats(value);
+        })
         .catch(() => undefined);
     }, setConnected);
     return () => {
@@ -190,6 +204,7 @@ export default function App() {
   }
 
   function handlePayment(payment: Payment) {
+    if (payment.source !== currentEnvironment.current) return;
     setPayments((current) => [
       payment,
       ...current.filter((item) => item.payment_id !== payment.payment_id),
@@ -197,13 +212,16 @@ export default function App() {
     setSelectedId(payment.payment_id);
     void api
       .stats(environment)
-      .then(setStats)
+      .then((value) => {
+        if (payment.source === currentEnvironment.current) setStats(value);
+      })
       .catch(() => undefined);
   }
 
   function changeEnvironment(next: EnvironmentMode) {
     if (next === "sepolia" && !health?.testnet_available) return;
     window.localStorage.setItem("paradime-environment", next);
+    currentEnvironment.current = next;
     setPayments([]);
     setStats(EMPTY_STATS);
     setSelectedId(null);
@@ -639,6 +657,8 @@ function PayPage({
   onPayment: (payment: Payment) => void;
   navigate: (page: Page) => void;
 }) {
+  const { runPayment } = usePaymentFlow();
+  const [refreshingWallet, setRefreshingWallet] = useState(false);
   const [mode, setMode] = useState<PaymentMode>("direct");
   const [input, setInput] = useState(() => {
     const receiver = new URLSearchParams(window.location.search).get(
@@ -670,6 +690,7 @@ function PayPage({
       ? {
           address: demoWallet.address,
           balanceUnits: demoWallet.balance_units ?? "0",
+          nativeBalanceWei: demoWallet.native_balance_wei ?? undefined,
         }
       : wallet;
 
@@ -722,50 +743,105 @@ function PayPage({
     }
   }
 
+  async function refreshWallet() {
+    if (!health || health.mode !== "sepolia") return;
+    setRefreshingWallet(true);
+    try {
+      if (testnetPayer === "demo") setDemoWallet(await api.managedDemoWallet());
+      else if (wallet) {
+        const { readSepoliaWallet } = await import("./wallet");
+        setWallet(await readSepoliaWallet(health, wallet.address));
+      }
+    } catch (reason) {
+      setLocalError(
+        reason instanceof Error
+          ? reason.message
+          : "Could not refresh wallet balances.",
+      );
+    } finally {
+      setRefreshingWallet(false);
+    }
+  }
+
   async function createPayment(paymentInput: DemoPaymentInput) {
+    if (submitting) return;
+    const frozenInput = { ...paymentInput };
     setSubmitting(true);
     setLocalError(null);
     try {
       if (!health)
-        throw new Error(
-          "Waiting for the backend payment environment. Try again when it is ready.",
-        );
-      if (health?.mode === "sepolia") {
-        if (testnetPayer === "demo") {
-          if (!demoWallet?.enabled)
-            throw new Error("The application demo wallet is not enabled");
-          setChainStage("deposit");
-          const submission = await api.payWithManagedDemoWallet(paymentInput);
-          setChainSubmission({
-            paymentId: submission.payment_id,
-            depositTxHash: submission.deposit_tx_hash,
-            approvalTxHash: submission.approval_tx_hash,
-            sender: submission.sender,
-            receiver: submission.receiver,
-            amountUnits: submission.amount_units,
-          });
-          void api
-            .managedDemoWallet()
-            .then(setDemoWallet)
-            .catch(() => undefined);
-        } else {
-          if (!wallet)
-            throw new Error(
-              "Connect a Sepolia wallet before submitting a payment",
-            );
-          const { depositSepoliaUsdc } = await import("./wallet");
-          const submission = await depositSepoliaUsdc(
-            paymentInput,
-            health,
-            setChainStage,
-          );
-          setChainSubmission(submission);
-        }
-      } else {
-        const payment = await api.simulate(paymentInput);
-        setCreated(payment);
-        onPayment(payment);
-      }
+        throw new Error("Waiting for the backend payment environment.");
+      if (health.mode === "sepolia" && testnetPayer === "browser" && !wallet)
+        throw new Error("Connect a Sepolia wallet before reviewing payment.");
+      const preview = () =>
+        api.previewPayment({
+          kind: "direct",
+          mode: health.mode,
+          payer: testnetPayer === "demo" ? "managed" : "browser",
+          sender:
+            health.mode === "simulation"
+              ? frozenInput.sender
+              : activeWallet?.address,
+          receiver: frozenInput.receiver,
+          amount_usdc: frozenInput.amount_usdc,
+          description: frozenInput.description,
+        });
+      await runPayment<ChainDepositResult | Payment>({
+        preview,
+        submit: async (progress, review) => {
+          if (health.mode === "sepolia") {
+            let submission: ChainDepositResult;
+            if (testnetPayer === "demo") {
+              setChainStage("deposit");
+              progress("Submitting through your managed Sepolia wallet…");
+              const result = await api.payWithManagedDemoWallet(frozenInput);
+              submission = {
+                paymentId: result.payment_id,
+                depositTxHash: result.deposit_tx_hash,
+                approvalTxHash: result.approval_tx_hash,
+                sender: result.sender,
+                receiver: result.receiver,
+                amountUnits: result.amount_units,
+              };
+            } else {
+              const { depositSepoliaUsdc } = await import("./wallet");
+              submission = await depositSepoliaUsdc(
+                frozenInput,
+                health,
+                setChainStage,
+                review.sender ?? undefined,
+                progress,
+              );
+            }
+            setChainSubmission(submission);
+            void refreshWallet();
+            return {
+              value: submission,
+              heading: "Deposit confirmed",
+              detail:
+                "Your USDC is in escrow. Settlement follows the risk check and recall window; this deposit is not yet a completed transfer to the recipient.",
+              links: {
+                deposit: `https://sepolia.etherscan.io/tx/${submission.depositTxHash}`,
+                ...(submission.approvalTxHash
+                  ? {
+                      approval: `https://sepolia.etherscan.io/tx/${submission.approvalTxHash}`,
+                    }
+                  : {}),
+              },
+            };
+          }
+          progress("Running the offline payment checks…");
+          const payment = await api.simulate(frozenInput);
+          setCreated(payment);
+          onPayment(payment);
+          return {
+            value: payment,
+            heading: "Simulation complete",
+            detail:
+              "The offline payment completed. No real funds or blockchain transactions were involved.",
+          };
+        },
+      });
     } catch (reason) {
       setLocalError(
         reason instanceof Error ? reason.message : "Unable to create payment",
@@ -835,6 +911,29 @@ function PayPage({
                 onClick={() => setTestnetPayer("browser")}
               >
                 <Wallet /> Connect wallet
+              </button>
+              {activeWallet && (
+                <span className="payment-inline-balance">
+                  {displayUnits(
+                    activeWallet.balanceUnits,
+                    health.stablecoin_decimals,
+                  )}{" "}
+                  {health.stablecoin_symbol} available
+                  {activeWallet.nativeBalanceWei
+                    ? ` · ${displayUnits(activeWallet.nativeBalanceWei, 18)} ETH for gas`
+                    : ""}
+                </span>
+              )}
+              <button
+                className="payment-balance-refresh"
+                aria-label="Refresh Sepolia balances"
+                disabled={refreshingWallet || submitting}
+                onClick={() => void refreshWallet()}
+              >
+                <RotateCcw
+                  size={14}
+                  className={refreshingWallet ? "payment-spin" : ""}
+                />
               </button>
             </div>
           )}
@@ -998,10 +1097,8 @@ function DirectPaymentForm({
           ? "Submitting escrow deposit…"
           : "Confirm escrow deposit…"
         : onChain
-          ? testnetPayer === "demo"
-            ? "Pay with demo wallet"
-            : "Approve & deposit"
-          : "Review and pay";
+          ? "Review payment"
+          : "Review simulated payment";
   return (
     <form className="direct-form" onSubmit={onSubmit}>
       <div className="form-title">
@@ -1346,7 +1443,7 @@ function ChatPayment({
               </div>
               <button
                 className="button button-dark"
-                disabled={submitting || (onChain && !wallet)}
+                disabled={!health || submitting || (onChain && !wallet)}
                 onClick={onCreate}
               >
                 {submitting
@@ -1354,10 +1451,8 @@ function ChatPayment({
                     ? "Approve in wallet…"
                     : "Submitting deposit…"
                   : onChain
-                    ? testnetPayer === "demo"
-                      ? "Pay with demo wallet"
-                      : "Sign & deposit"
-                    : "Confirm payment"}
+                    ? "Review payment"
+                    : "Review simulated payment"}
               </button>
             </div>
           </>

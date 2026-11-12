@@ -126,6 +126,14 @@ Only explicit offline simulation discards live signers, RPC, and LLM settings.
 The launcher owns both child server process groups and keeps credentials out of
 the frontend process. Never attach Etherscan links to synthetic identifiers.
 Track and resume persisted operations without creating a second deposit.
+`src/payment-flow.tsx` owns browser payment review, duplicate-submit prevention,
+progress, and minimized tracking. All browser payment initiators must use it;
+inspection and recovery commands must not be presented as new charges. Keep
+amounts and recipients frozen while reviewing. `app/payment_preview.py` is
+strictly read-only and uses the same command parser and seller settings as
+execution; it must never create authority, reserve funds, or submit transactions.
+Confirmation refreshes balances, and browser submission must reject a changed
+paying account before signing. A confirmed deposit is not a completed settlement.
 Keep offline simulation and the protection concept visibly labeled; the lab's
 illustrative premium is not a pricing model or implemented coverage product.
 

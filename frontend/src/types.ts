@@ -10,7 +10,13 @@ export interface Payment {
   block_number: number | null;
   deposited_at: string;
   recall_deadline: string;
-  status: "detected" | "scoring" | "approved" | "executed" | "recalled" | "failed";
+  status:
+    | "detected"
+    | "scoring"
+    | "approved"
+    | "executed"
+    | "recalled"
+    | "failed";
   decision: "execute" | "recall" | null;
   risk_score: number | null;
   risk_level: "low" | "medium" | "high" | null;
@@ -85,6 +91,7 @@ export interface ManagedDemoWallet {
   enabled: boolean;
   address: string | null;
   balance_units: string | null;
+  native_balance_wei: string | null;
   max_amount_units: string;
   remaining_session_budget_units: string;
 }
@@ -96,4 +103,36 @@ export interface ManagedDemoPayment {
   sender: string;
   receiver: string;
   amount_units: string;
+}
+
+export interface PaymentPreviewInput {
+  kind: "direct" | "scenario" | "command";
+  mode: "simulation" | "sepolia";
+  payer?: "managed" | "browser";
+  sender?: string;
+  receiver?: string;
+  amount_usdc?: string;
+  description?: string;
+  scenario?: "purchase" | "trusted" | "watchlist" | "budget" | "replay";
+  command?: string;
+  budget_units?: string;
+}
+
+export interface PaymentReview {
+  mode: "simulation" | "sepolia";
+  title: string;
+  amount_units: string;
+  offer_units: string | null;
+  budget_units: string | null;
+  sender: string | null;
+  receiver: string | null;
+  token_symbol: string;
+  token_decimals: number;
+  balance_units: string | null;
+  native_balance_wei: string | null;
+  remaining_session_budget_units: string | null;
+  can_submit: boolean;
+  policy_only: boolean;
+  blockers: string[];
+  notes: string[];
 }

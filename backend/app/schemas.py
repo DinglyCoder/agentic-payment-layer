@@ -32,6 +32,7 @@ class ManagedDemoWalletRead(BaseModel):
     enabled: bool
     address: str | None
     balance_units: str | None
+    native_balance_wei: str | None = None
     max_amount_units: str
     remaining_session_budget_units: str
 

@@ -15,6 +15,7 @@ from .demo import DemoWorkspace
 from .demo import router as demo_router
 from .fraud import FraudEngine
 from .managed_wallet import ManagedDemoWallet
+from .payment_preview import router as payment_preview_router
 from .seed import seed_database
 from .service import PaymentProcessor
 from .websocket import manager
@@ -91,6 +92,7 @@ app.add_middleware(
 app.include_router(router)
 app.include_router(mcp_router)
 app.include_router(demo_router)
+app.include_router(payment_preview_router)
 
 
 @app.websocket("/ws/payments")

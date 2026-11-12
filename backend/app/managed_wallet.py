@@ -7,7 +7,7 @@ from eth_account import Account
 from eth_account.messages import encode_defunct
 from eth_utils import keccak
 
-from .blockchain import EscrowChain
+from .blockchain import EscrowChain, validate_payment_receiver
 from .config import Settings
 from .schemas import (
     IntentEnvelopeCreate,
@@ -37,11 +37,19 @@ class ManagedDemoWallet:
         return self.account is not None
 
     async def status(self) -> ManagedDemoWalletRead:
-        balance = await self.chain.token_balance(self.account.address) if self.account else None
+        balance, native_balance = (
+            await asyncio.gather(
+                self.chain.token_balance(self.account.address),
+                self.chain.native_balance(self.account.address),
+            )
+            if self.account
+            else (None, None)
+        )
         return ManagedDemoWalletRead(
             enabled=self.enabled,
             address=self.account.address.lower() if self.account else None,
             balance_units=str(balance) if balance is not None else None,
+            native_balance_wei=str(native_balance) if native_balance is not None else None,
             max_amount_units=str(self.settings.managed_demo_max_amount_units),
             remaining_session_budget_units=str(
                 max(0, self.settings.managed_demo_session_budget_units - self._spent_units)
@@ -57,6 +65,12 @@ class ManagedDemoWallet:
     ) -> ManagedDemoPaymentRead:
         if not self.account:
             raise PermissionError("managed demo wallet is not enabled")
+        validate_payment_receiver(
+            self.account.address,
+            request.receiver,
+            self.settings.payment_token_address,
+            self.settings.escrow_contract_address,
+        )
         amount_units = int(request.amount_usdc * (10**self.settings.stablecoin_decimals))
         payment_id = payment_id or "0x" + secrets.token_hex(32)
         nonce = "0x" + secrets.token_hex(32)
@@ -113,8 +127,12 @@ class ManagedDemoWallet:
             raise PermissionError("managed demo wallet is not enabled for this payer")
         if amount_units <= 0 or amount_units > self.settings.managed_demo_max_amount_units:
             raise ValueError("payment exceeds the managed demo wallet per-payment limit")
-        if receiver.lower() == account.address.lower():
-            raise ValueError("sender and receiver must differ")
+        validate_payment_receiver(
+            account.address,
+            receiver,
+            self.settings.payment_token_address,
+            self.settings.escrow_contract_address,
+        )
         async with self._lock:
             if self._spent_units + amount_units > self.settings.managed_demo_session_budget_units:
                 raise ValueError("managed demo wallet session budget is exhausted")

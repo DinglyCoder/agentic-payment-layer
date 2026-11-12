@@ -719,28 +719,10 @@ class DemoWorkspace:
                     ],
                     data=receipt.model_dump(mode="json") | {"explorer_links": links},
                 )
-            if verb == "buy":
-                options = parse_options(args, {"--budget"})
-                request = DemoInput(
-                    mode=mode,
-                    request_id=request_id,
-                    budget_units=decimal_units(options.get("--budget", "3")),
-                )
-                scenario = "purchase"
-            elif verb == "pay":
-                options = parse_options(args, {"--scenario"})
-                scenario = options.get("--scenario", "trusted")
-                if scenario not in {"trusted", "watchlist"}:
-                    raise ValueError("pay --scenario must be trusted or watchlist")
-                request = DemoInput(mode=mode, request_id=request_id)
-            elif (
-                verb == "demo"
-                and len(args) == 1
-                and args[0] in {"purchase", "watchlist", "budget", "replay"}
-            ):
-                scenario, request = args[0], DemoInput(mode=mode, request_id=request_id)
-            else:
+            plan = payment_command(command, mode, request_id)
+            if plan is None:
                 raise ValueError("unknown command or arguments; run paradime help")
+            scenario, request = plan
             operation = await self.start(scenario, request)
             return CommandResult(
                 command=command,
@@ -754,6 +736,39 @@ class DemoWorkspace:
             )
         except (ValueError, InvalidOperation) as exc:
             return CommandResult(command=command, exit_code=2, output=[f"Error: {exc}"])
+
+
+def payment_command(command: str, mode: Mode, request_id=None):
+    """Parse payment commands once for both non-mutating review and execution."""
+    words = shlex.split(command)
+    if words and words[0] in {"paradime", "./paradime"}:
+        words.pop(0)
+    if not words:
+        return None
+    verb, *args = words
+    if verb == "buy":
+        options = parse_options(args, {"--budget"})
+        request = DemoInput(
+            mode=mode,
+            request_id=request_id,
+            budget_units=decimal_units(options.get("--budget", "3")),
+        )
+        scenario = "purchase"
+    elif verb == "pay":
+        options = parse_options(args, {"--scenario"})
+        scenario = options.get("--scenario", "trusted")
+        if scenario not in {"trusted", "watchlist"}:
+            raise ValueError("pay --scenario must be trusted or watchlist")
+        request = DemoInput(mode=mode, request_id=request_id)
+    elif (
+        verb == "demo"
+        and len(args) == 1
+        and args[0] in {"purchase", "watchlist", "budget", "replay"}
+    ):
+        scenario, request = args[0], DemoInput(mode=mode, request_id=request_id)
+    else:
+        return None
+    return scenario, request
 
 
 def parse_options(args: list[str], allowed: set[str]) -> dict[str, str]:

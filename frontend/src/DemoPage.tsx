@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import { api, followDemoOperation } from "./api";
 import { CopyButton } from "./components";
+import { usePaymentFlow, type PaymentProgress } from "./payment-flow";
 import type {
   DemoCommandResult,
   DemoMode,
@@ -157,6 +158,7 @@ export default function DemoPage({
   openDashboard: () => void;
   openWallet: () => void;
 }) {
+  const { runPayment } = usePaymentFlow();
   const [tab, setTab] = useState<"journey" | "terminal" | "protection">(
     "journey",
   );
@@ -225,10 +227,41 @@ export default function DemoPage({
         next === "purchase" && tourIndex === undefined
           ? { budget_units: budgetUnits(budget), prompt }
           : {};
-      const started = await api.demoScenario(next, mode, input);
-      const finished = await followDemoOperation(started, (progress) => {
-        if (active.current) setOperation(progress);
+      const finished = await runPayment({
+        preview: () =>
+          api.previewPayment({
+            kind: "scenario",
+            mode,
+            scenario: next,
+            ...input,
+          }),
+        submit: async (notify) => {
+          notify("Preparing the signed payment operation…");
+          const started = await api.demoScenario(next, mode, input);
+          const completed = await followDemoOperation(started, (progress) => {
+            notify(progress.phase, progress.explorer_links);
+            if (active.current) setOperation(progress);
+          });
+          if (!completed.result)
+            throw new Error(completed.error ?? completed.phase);
+          return {
+            value: completed,
+            heading: simulation
+              ? "Simulation complete"
+              : completed.result.outcome === "recalled"
+                ? "Payment refunded"
+                : completed.result.outcome === "blocked"
+                  ? "Policy check complete"
+                  : "Payment settled",
+            detail: completed.result.summary,
+            links: {
+              ...completed.explorer_links,
+              ...completed.result.explorer_links,
+            },
+          };
+        },
       });
+      if (!finished) return;
       if (!active.current) return;
       if (!finished.result)
         throw new Error(
@@ -1036,6 +1069,7 @@ function DeveloperTerminal({
   onRun: (run: DemoRun) => void;
   onBusy: (busy: boolean) => void;
 }) {
+  const { runPayment } = usePaymentFlow();
   const [entries, setEntries] = useState<TerminalEntry[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
@@ -1060,39 +1094,102 @@ function DeveloperTerminal({
     setInput("");
     historyIndex.current = null;
     try {
-      let result = await api.demoCommand(command, mode);
-      setEntries((items) => [...items, { command, result }].slice(-60));
-      if (result.operation) {
-        const initialOutput = result.output;
-        const finished = await followDemoOperation(
-          result.operation,
-          (progress) => {
-            const output = [
-              ...initialOutput,
-              progress.phase,
-              ...Object.entries(progress.explorer_links).map(
-                ([key, url]) => `${key}: ${url}`,
-              ),
-            ];
-            result = { ...result, operation: progress, output };
-            setEntries((items) => [...items.slice(0, -1), { command, result }]);
-          },
+      const review = await api.previewPayment({
+        kind: "command",
+        mode,
+        command,
+      });
+      const executeCommand = async (notify?: PaymentProgress) => {
+        let result = await api.demoCommand(command, mode);
+        notify?.(
+          "Payment operation started…",
+          result.operation?.explorer_links,
         );
-        result = {
-          ...result,
-          operation: finished,
-          run: finished.result,
-          exit_code: finished.status === "completed" ? 0 : 1,
-          output: [
-            ...result.output,
-            finished.result
-              ? `[${finished.result.outcome.toUpperCase()}] ${finished.result.summary}`
-              : (finished.error ?? finished.phase),
-          ],
-        };
-        setEntries((items) => [...items.slice(0, -1), { command, result }]);
-      }
-      if (result.run) onRun(result.run);
+        setEntries((items) => [...items, { command, result }].slice(-60));
+        if (result.operation) {
+          const initialOutput = result.output;
+          const finished = await followDemoOperation(
+            result.operation,
+            (progress) => {
+              notify?.(progress.phase, progress.explorer_links);
+              const output = [
+                ...initialOutput,
+                progress.phase,
+                ...Object.entries(progress.explorer_links).map(
+                  ([key, url]) => `${key}: ${url}`,
+                ),
+              ];
+              result = { ...result, operation: progress, output };
+              setEntries((items) => [
+                ...items.slice(0, -1),
+                { command, result },
+              ]);
+            },
+          );
+          result = {
+            ...result,
+            operation: finished,
+            run: finished.result,
+            exit_code: finished.status === "completed" ? 0 : 1,
+            output: [
+              ...result.output,
+              finished.result
+                ? `[${finished.result.outcome.toUpperCase()}] ${finished.result.summary}`
+                : (finished.error ?? finished.phase),
+            ],
+          };
+          setEntries((items) => [...items.slice(0, -1), { command, result }]);
+        }
+
+        return result;
+      };
+      const result = review
+        ? await runPayment({
+            initialReview: review,
+            preview: () =>
+              api.previewPayment({ kind: "command", mode, command }),
+            submit: async (notify) => {
+              const executed = await executeCommand(notify);
+              if (executed.exit_code)
+                throw new Error(
+                  executed.output.at(-1) ?? "Payment operation failed.",
+                );
+              return {
+                value: executed,
+                heading:
+                  mode === "simulation"
+                    ? "Simulation complete"
+                    : executed.run?.outcome === "recalled"
+                      ? "Payment refunded"
+                      : executed.run?.outcome === "blocked"
+                        ? "Policy check complete"
+                        : "Payment settled",
+                detail: executed.run?.summary ?? "Operation completed.",
+                links: {
+                  ...executed.operation?.explorer_links,
+                  ...executed.run?.explorer_links,
+                },
+              };
+            },
+          })
+        : await executeCommand();
+      if (!result) {
+        setEntries((items) => [
+          ...items,
+          {
+            command,
+            result: {
+              command,
+              exit_code: 0,
+              output: ["Payment cancelled. No transaction was submitted."],
+              run: null,
+              operation: null,
+              data: null,
+            },
+          },
+        ]);
+        setInput(command);
+      } else if (result.run) onRun(result.run);
     } catch (reason) {
       setEntries((items) => [
         ...items,
@@ -1217,7 +1314,7 @@ function DeveloperTerminal({
         <p>
           Run a purchase, trigger a recall, or inspect the latest receipt.{" "}
           {mode === "sepolia"
-            ? "Commands submit actual test-USDC payments. Transaction links appear as they are submitted and resolved."
+            ? "Payment commands open a charge and balance review before submission. Read-only commands run immediately. Transaction links appear as payments progress."
             : "Explicit offline simulation creates no blockchain transactions."}
         </p>
         {[

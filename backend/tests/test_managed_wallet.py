@@ -21,6 +21,9 @@ class StubChain:
     async def token_balance(self, address):
         return 20_000_000
 
+    async def native_balance(self, address):
+        return 10**17
+
     async def deposit_from(self, account, payment_id, receiver, amount_units, metadata_hash):
         self.deposit = (account.address, payment_id, receiver, amount_units, metadata_hash)
         return DepositSubmission(
@@ -101,3 +104,21 @@ async def test_ambiguous_submission_retains_funding_reservation():
         await wallet.pay(request)
     with pytest.raises(ValueError, match="session budget"):
         await wallet.pay(request)
+
+
+@pytest.mark.asyncio
+async def test_token_contract_recipient_is_rejected_before_signing_or_spending():
+    processor = RecordingProcessor()
+    chain = StubChain()
+    wallet = ManagedDemoWallet(managed_settings(), processor, chain)
+    with pytest.raises(ValueError, match="token contract"):
+        await wallet.pay(
+            ManagedDemoPaymentCreate(
+                receiver=wallet.settings.payment_token_address,
+                amount_usdc="4.2",
+                description="Invalid token recipient",
+            )
+        )
+    assert processor.envelope is None
+    assert chain.deposit is None
+    assert (await wallet.status()).remaining_session_budget_units == "6000000"

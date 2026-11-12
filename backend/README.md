@@ -17,6 +17,15 @@ Poll `GET /api/demo/operations/{operation_id}` to observe progress and result.
 A repeated request ID returns the same operation without another payment.
 Budget and replay rejections happen before any transaction is sent.
 
+`POST /api/payments/preview` provides read-only confirmation details for direct
+payments, scenarios, and browser-terminal commands. It returns the actual charge,
+authorization budget, RPC-backed USDC/ETH balances, and submission blockers.
+Command previews share the execution parser; read-only commands return `null`.
+Previews never create mandates, reserve budget, sign intents, or submit payments.
+They are UI checks, not an authorization primitive: server-side spending limits
+and signed-intent validation still enforce the actual payment path. The managed
+wallet status endpoint also includes `native_balance_wei` for Sepolia gas.
+
 The original credential-free autonomous endpoint remains available when the
 main service runs in simulation mode:
 

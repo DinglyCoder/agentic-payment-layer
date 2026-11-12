@@ -15,6 +15,21 @@ from .config import Settings
 logger = logging.getLogger(__name__)
 
 
+def validate_payment_receiver(sender: str, receiver: str, token: str, escrow: str) -> None:
+    if not Web3.is_address(receiver) or int(receiver, 16) == 0:
+        raise ValueError("Enter a valid receiving wallet address")
+    if receiver.lower() == sender.lower():
+        raise ValueError("Sender and receiver wallets must differ")
+    if receiver.lower() == token.lower():
+        raise ValueError(
+            "The USDC token contract is not a payment recipient. Enter the receiving wallet."
+        )
+    if receiver.lower() == escrow.lower():
+        raise ValueError(
+            "The escrow contract is not a payment recipient. Enter the receiving wallet."
+        )
+
+
 @dataclass(frozen=True, slots=True)
 class DepositEvent:
     payment_id: str
@@ -304,6 +319,11 @@ class EscrowChain:
             ],
         )
         return int(await token.functions.balanceOf(Web3.to_checksum_address(address)).call())
+
+    async def native_balance(self, address: str) -> int:
+        if not self.enabled or self.w3 is None:
+            raise RuntimeError("ETH balance requested without a Sepolia connection")
+        return int(await self.w3.eth.get_balance(Web3.to_checksum_address(address)))
 
     async def _send_account_transaction(
         self,

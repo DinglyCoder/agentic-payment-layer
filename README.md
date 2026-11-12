@@ -84,6 +84,22 @@ The workspace includes:
   price shocks, mock reserves, and mock payouts. Its premium is illustrative;
   options pricing and underwriting are not implemented.
 
+Every browser payment entry point opens a confirmation window: direct and guided
+payments, workspace scenarios and tours, and payment commands in the browser
+terminal. It shows the actual charge separately from any authorized budget,
+the paying and receiving wallets, live Sepolia USDC and ETH balances, and the
+projected USDC balance after deposit. Gas is additional and paid in Sepolia ETH.
+Balances refresh again before submission; cancelling the review sends no payment.
+Read-only terminal commands run immediately, and policy rejections show a zero
+charge. The local CLI and autonomous API remain usable without a browser dialog.
+
+The window follows actual operation phases and transaction links, refreshes the
+balance after completion, and can minimize into a status control while a payment
+continues. A confirmed direct deposit means funds entered escrow; settlement is
+reported separately. Token-contract, escrow-contract, zero, and self recipients
+are rejected before managed or browser-wallet submission. After updating the
+backend, stop the old launcher with **Ctrl+C** and run `./demo` again.
+
 Signatures, budget enforcement, replay rejection, risk scoring, and seller proof
 checks run in the backend; successful purchases wait for mined escrow execution.
 Budget and replay rejections send no transaction and have no fabricated explorer
